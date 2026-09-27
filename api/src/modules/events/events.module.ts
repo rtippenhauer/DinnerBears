@@ -14,6 +14,9 @@ import { CalendarModule } from '../calendar/calendar.module';
 import { CommunityModule } from '../community/community.module';
 import { LocationsModule } from '../locations/locations.module';
 import { AppConfigModule } from '../app-config/app-config.module';
+import { AuditModule } from '../audit/audit.module';
+import { IntegrationsModule } from '../integrations/integrations.module';
+import { FacebookSyncService } from './facebook-sync.service';
 
 @Module({
   imports: [
@@ -24,9 +27,11 @@ import { AppConfigModule } from '../app-config/app-config.module';
     CommunityModule,
     LocationsModule,
     AppConfigModule,
+    AuditModule,
+    IntegrationsModule,
   ],
-  providers: [EventsService],
+  providers: [EventsService, FacebookSyncService],
   controllers: [EventsController],
-  exports: [EventsService],
+  exports: [EventsService, FacebookSyncService],
 })
 export class EventsModule {}

@@ -12,7 +12,7 @@ import { IsNull, Not, Repository } from 'typeorm';
 import { EventEntity, EventStatus } from '../../database/entities/event.entity';
 import { UserEntity, UserRole, UserStatus } from '../../database/entities/user.entity';
 import { EventGuestLinkEntity } from '../../database/entities/event-guest-link.entity';
-import { EventRsvpEntity, RsvpStatus } from '../../database/entities/event-rsvp.entity';
+import { EventRsvpEntity, RsvpSource, RsvpStatus } from '../../database/entities/event-rsvp.entity';
 import { InviteEntity, InviteFlavor, InviteType } from '../../database/entities/invite.entity';
 import { LocationEntity } from '../../database/entities/location.entity';
 import { CreateEventDto } from './dto/create-event.dto';
@@ -29,6 +29,7 @@ import { icsEscape, eventTimeToUtc, toIcsUtcString, foldIcsLine, EVENT_DURATION_
 import { LocationVisibilityService } from '../../common/services/location-visibility.service';
 import { eventOrganizerEmail } from '../../common/config/instance-contact';
 import { AppConfigService } from '../app-config/app-config.service';
+import { AuditService } from '../audit/audit.service';
 
 export interface EventFilters {
   cityId?: number;
@@ -38,6 +39,12 @@ export interface EventFilters {
   isAdminOrMod?: boolean;
   userId?: number;
   callerRole?: UserRole;
+}
+
+// Accounts that act on the site but aren't people — never RSVP'd, searched
+// for, or matched by name.
+export function isHiddenRole(role: UserRole): boolean {
+  return role === UserRole.AUTOMATION || role === UserRole.MUSE;
 }
 
 @Injectable()
@@ -64,6 +71,7 @@ export class EventsService {
     private readonly config: ConfigService,
     private readonly locationVisibility: LocationVisibilityService,
     private readonly appConfig: AppConfigService,
+    private readonly auditService: AuditService,
   ) {}
 
   // Per-instance branding for transactional emails / calendar files. Reads the
@@ -611,15 +619,9 @@ export class EventsService {
     await this.eventRepo.remove(event);
   }
 
-  async upsertRsvp(
-    eventId: number,
-    userId: number,
-    status: RsvpStatus,
-    additionalGuests: number,
-    guestNames?: string[],
-    bringingItem?: string,
-    userRole?: UserRole,
-  ): Promise<EventRsvpEntity> {
+  // Published and not yet in the past (Eastern calendar date) — the baseline
+  // for any RSVP change, whether the member's own or made on their behalf.
+  async getRsvpableEvent(eventId: number): Promise<EventEntity> {
     const event = await this.eventRepo.findOne({ where: { id: eventId } });
     if (!event) throw new NotFoundException(`Event ${eventId} not found`);
     if (event.status !== EventStatus.PUBLISHED) {
@@ -636,6 +638,19 @@ export class EventsService {
     if (event.eventDate < todayEastern) {
       throw new BadRequestException('Cannot RSVP to a past event');
     }
+    return event;
+  }
+
+  async upsertRsvp(
+    eventId: number,
+    userId: number,
+    status: RsvpStatus,
+    additionalGuests: number,
+    guestNames?: string[],
+    bringingItem?: string,
+    userRole?: UserRole,
+  ): Promise<EventRsvpEntity> {
+    const event = await this.getRsvpableEvent(eventId);
 
     const existing = await this.rsvpRepo.findOne({ where: { eventId, userId } });
 
@@ -679,9 +694,12 @@ export class EventsService {
       }
     }
 
+    // A member touching their own RSVP takes ownership of it — from then on
+    // the Facebook sync never removes it (Phase 39).
     let saved: EventRsvpEntity;
     if (existing) {
       existing.status = status;
+      existing.source = RsvpSource.MEMBER;
       existing.additionalGuests = additionalGuests;
       if (guestNames !== undefined) {
         existing.guestNames = guestNames.length > 0 ? guestNames : null;
@@ -699,6 +717,7 @@ export class EventsService {
           additionalGuests,
           guestNames: guestNames && guestNames.length > 0 ? guestNames : null,
           bringingItem: bringingItem?.trim() || null,
+          source: RsvpSource.MEMBER,
         }),
       );
     }
@@ -712,6 +731,134 @@ export class EventsService {
     }
 
     return saved;
+  }
+
+  // Marks someone Going on their behalf (Phase 39) — an admin's "Add to Going"
+  // or the Facebook sync. Deliberately skips the member-facing gates (RSVP
+  // cutoff, membership fee): the organizer is vouching for them. Callers must
+  // have already checked the event with getRsvpableEvent(). Sends the normal
+  // confirmation, annotated with who added them, when they're newly Going.
+  async setGoingOnBehalf(
+    event: EventEntity,
+    userId: number,
+    source: RsvpSource.ADMIN | RsvpSource.FACEBOOK_SYNC,
+    changes: { additionalGuests: number; guestNames?: string[] | null },
+  ): Promise<{ rsvp: EventRsvpEntity; before: { status: RsvpStatus; additionalGuests: number } | null }> {
+    const existing = await this.rsvpRepo.findOne({ where: { eventId: event.id, userId } });
+    const before = existing ? { status: existing.status, additionalGuests: existing.additionalGuests } : null;
+    const wasGoing = existing?.status === RsvpStatus.GOING;
+
+    const rsvp = existing ?? this.rsvpRepo.create({ eventId: event.id, userId });
+    rsvp.status = RsvpStatus.GOING;
+    rsvp.additionalGuests = Math.min(255, Math.max(0, changes.additionalGuests));
+    if (changes.guestNames !== undefined) {
+      rsvp.guestNames = changes.guestNames && changes.guestNames.length > 0 ? changes.guestNames : null;
+    }
+    // Someone already Going keeps whoever owned the RSVP; only a new Going
+    // (or an upgrade from Maybe/Not Going) belongs to the adder.
+    if (!wasGoing) rsvp.source = source;
+
+    const saved = await this.rsvpRepo.save(rsvp);
+    this.calendarService.invalidateForUser(userId);
+    if (!wasGoing) void this.sendRsvpConfirmation(event, userId, source);
+    return { rsvp: saved, before };
+  }
+
+  async addGoingByAdmin(
+    eventId: number,
+    userId: number,
+    additionalGuests: number,
+    actorId: number,
+  ): Promise<{
+    type: 'member';
+    userId: number;
+    memberName: string;
+    attended: boolean | null;
+    isWalkin: boolean;
+    fromOtherCity: boolean;
+    linkUsed: boolean;
+    source: RsvpSource;
+  }> {
+    const event = await this.getRsvpableEvent(eventId);
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user || user.status !== UserStatus.ACTIVE || isHiddenRole(user.role)) {
+      throw new NotFoundException('Member not found');
+    }
+
+    const { rsvp, before } = await this.setGoingOnBehalf(event, userId, RsvpSource.ADMIN, { additionalGuests });
+    await this.auditService.log({
+      userId: actorId,
+      action: 'rsvp.admin_add_going',
+      entityType: 'event',
+      entityId: eventId,
+      metadata: {
+        targetUserId: userId,
+        before,
+        after: { status: rsvp.status, additionalGuests: rsvp.additionalGuests },
+      },
+    });
+
+    return {
+      type: 'member' as const,
+      userId,
+      memberName: user.fullName,
+      attended: rsvp.attended == null ? null : !!rsvp.attended,
+      isWalkin: !!rsvp.isWalkin,
+      fromOtherCity: !!rsvp.fromOtherCity,
+      linkUsed: false,
+      source: rsvp.source,
+    };
+  }
+
+  // Muse's read of an event's signups (Phase 39): every member RSVP in any
+  // status — with +1s and who created it — plus public guest signups.
+  async getAttendeeList(eventId: number): Promise<{
+    eventId: number;
+    members: {
+      userId: number;
+      fullName: string;
+      status: RsvpStatus;
+      additionalGuests: number;
+      guestNames: string[];
+      source: RsvpSource;
+      attended: boolean | null;
+      isWalkin: boolean;
+      updatedAt: Date;
+    }[];
+    publicGuests: { guestLinkId: number; name: string | null; attended: boolean | null; createdAt: Date }[];
+  }> {
+    const event = await this.eventRepo.findOne({ where: { id: eventId } });
+    if (!event) throw new NotFoundException(`Event ${eventId} not found`);
+
+    const [rsvps, publicLinks] = await Promise.all([
+      this.rsvpRepo.find({ where: { eventId }, relations: ['user'], order: { createdAt: 'ASC' } }),
+      this.guestLinkRepo.find({
+        where: { eventId, source: 'public', cancelledAt: IsNull() },
+        order: { createdAt: 'ASC' },
+      }),
+    ]);
+
+    return {
+      eventId,
+      members: rsvps.map((r) => ({
+        userId: r.userId,
+        fullName: r.user?.fullName ?? 'Member',
+        status: r.status,
+        additionalGuests: Number(r.additionalGuests) || 0,
+        guestNames: r.guestNames ?? [],
+        source: r.source,
+        // tinyint columns come back as 0/1 — normalize before they leave the API
+        attended: r.attended === null ? null : !!r.attended,
+        isWalkin: !!r.isWalkin,
+        updatedAt: r.updatedAt,
+      })),
+      publicGuests: publicLinks.map((l) => ({
+        guestLinkId: l.id,
+        name: l.recipientName ?? null,
+        attended: l.attended === null ? null : !!l.attended,
+        createdAt: l.createdAt,
+      })),
+    };
   }
 
   private async sendPublishInvites(event: EventEntity): Promise<void> {
@@ -807,7 +954,11 @@ export class EventsService {
     }
   }
 
-  private async sendRsvpConfirmation(event: EventEntity, userId: number): Promise<void> {
+  private async sendRsvpConfirmation(
+    event: EventEntity,
+    userId: number,
+    source: RsvpSource = RsvpSource.MEMBER,
+  ): Promise<void> {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user?.email) return;
 
@@ -820,6 +971,17 @@ export class EventsService {
     });
     const timeDisplay = this.formatEventTimeDisplay(eh, emin);
     const eventUrl = `${appUrl}/events/${event.id}`;
+
+    // Someone else put them on the list — say who, so the email isn't a surprise.
+    const addedByNote =
+      source === RsvpSource.FACEBOOK_SYNC
+        ? `We added you because you marked <strong>Going</strong> on the Facebook event — this RSVP was made by our Facebook sync, not by you on the website.`
+        : source === RsvpSource.ADMIN
+          ? `An organizer added you to the list for this ${eventSingularLower}.`
+          : null;
+    const addedByHtml = addedByNote
+      ? `<p style="margin:0 0 20px;padding:12px 16px;background:#fff8e7;border:1px solid #f0dca8;border-radius:8px;font-size:0.88rem;color:#6B4226">${addedByNote} If that's not right, you can change your RSVP on the ${eventSingularLower} page.</p>`
+      : '';
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -834,6 +996,7 @@ export class EventsService {
   <tr><td style="padding:32px 36px 24px">
     <p style="margin:0 0 8px;font-size:0.95rem;color:#666">Hi ${user.fullName},</p>
     <h1 style="margin:0 0 20px;font-size:1.4rem;font-weight:700;color:#3D1C05;line-height:1.2">You're going! 🎉</h1>
+    ${addedByHtml}
     <table role="presentation" width="100%" style="background:#faf7f2;border:1px solid #e8e0d6;border-radius:8px;margin-bottom:24px">
       <tr><td style="padding:10px 16px;border-bottom:1px solid #e8e0d6;font-size:0.9rem;color:#444">
         <span style="color:#C9933A;margin-right:8px">🍽️</span><strong>${event.locationName}</strong>
@@ -1388,6 +1551,7 @@ export class EventsService {
     isWalkin: boolean;
     fromOtherCity: boolean;
     linkUsed: boolean;
+    source?: RsvpSource;
   }[]> {
     const event = await this.eventRepo.findOne({ where: { id: eventId } });
     if (!event) throw new NotFoundException('Event not found');
@@ -1416,6 +1580,7 @@ export class EventsService {
       isWalkin: r.isWalkin,
       fromOtherCity: r.fromOtherCity,
       linkUsed: false,
+      source: r.source,
     }));
 
     const guests = guestLinks
@@ -1537,6 +1702,7 @@ export class EventsService {
       .createQueryBuilder('u')
       .select(['u.id', 'u.fullName'])
       .where('u.status = :status', { status: 'active' })
+      .andWhere('u.role NOT IN (:...hiddenRoles)', { hiddenRoles: [UserRole.AUTOMATION, UserRole.MUSE] })
       .orderBy('u.full_name', 'ASC')
       .limit(20);
 

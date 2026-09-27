@@ -24,7 +24,12 @@ import {
 
 export interface AttendanceDialogData {
   eventId: number;
+  // "Add to Going" (RSVP on someone's behalf) is admin-only; moderators still
+  // get Add Walk-in.
+  isAdmin?: boolean;
 }
+
+type AddMode = 'walkin' | 'going';
 
 @Component({
   selector: 'app-attendance-dialog',
@@ -43,9 +48,10 @@ export interface AttendanceDialogData {
     <mat-dialog-content>
       @if (attendanceLoading()) {
         <div class="att-loading"><mat-spinner diameter="24" /></div>
-      } @else if (attendanceList().length === 0) {
-        <p class="no-attendance">No Going RSVPs for this event.</p>
       } @else {
+        @if (attendanceList().length === 0) {
+          <p class="no-attendance">No Going RSVPs for this event.</p>
+        }
         <div class="attendance-list">
           @for (
             entry of attendanceList();
@@ -56,6 +62,11 @@ export interface AttendanceDialogData {
                 {{ entry.memberName }}
                 @if (entry.isWalkin) {
                   <span class="walkin-badge">Walk-in</span>
+                }
+                @if (entry.source === 'facebook_sync') {
+                  <span class="source-badge" matTooltip="Marked Going by the Facebook sync">Facebook</span>
+                } @else if (entry.source === 'admin') {
+                  <span class="source-badge" matTooltip="Added to Going by an admin">Added</span>
                 }
                 @if (entry.type === 'guest') {
                   <span class="guest-badge">Guest</span>
@@ -120,8 +131,11 @@ export interface AttendanceDialogData {
           }
         </div>
 
-        @if (showWalkinForm()) {
+        @if (addMode()) {
           <div class="walkin-form" #walkinFormEl>
+            <div class="add-mode-label">
+              {{ addMode() === 'going' ? 'Add to Going — RSVPs them and sends a confirmation' : 'Add Walk-in — marks them attended' }}
+            </div>
             <mat-form-field appearance="outline" class="walkin-search-field">
               <mat-label>Search member by name</mat-label>
               <input
@@ -151,8 +165,13 @@ export interface AttendanceDialogData {
       }
     </mat-dialog-content>
     <mat-dialog-actions align="end">
-      @if (!attendanceLoading() && attendanceList().length > 0) {
-        <button mat-stroked-button (click)="showWalkinForm.set(!showWalkinForm())">
+      @if (!attendanceLoading()) {
+        @if (data.isAdmin) {
+          <button mat-stroked-button (click)="toggleAddMode('going')">
+            <mat-icon>event_available</mat-icon> Add to Going
+          </button>
+        }
+        <button mat-stroked-button (click)="toggleAddMode('walkin')">
           <mat-icon>person_add</mat-icon> Add Walk-in
         </button>
       }
@@ -241,6 +260,23 @@ export interface AttendanceDialogData {
         border-radius: 8px;
         margin-left: 6px;
       }
+      .source-badge {
+        display: inline-block;
+        font-size: 0.68rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        padding: 1px 6px;
+        border-radius: 8px;
+        margin-left: 6px;
+        background: #ede7f6;
+        color: #4527a0;
+      }
+      .add-mode-label {
+        font-size: 0.8rem;
+        color: #666;
+        margin-bottom: 8px;
+      }
       .walkin-badge {
         background: #fff3e0;
         color: var(--db-amber-dark, #b8832e);
@@ -288,7 +324,7 @@ export class AttendanceDialogComponent {
   readonly attendanceList = signal<AttendanceEntry[]>([]);
   readonly attendanceLoading = signal(false);
   readonly savingAttendance = signal(false);
-  readonly showWalkinForm = signal(false);
+  readonly addMode = signal<AddMode | null>(null);
   readonly walkinSearch = signal('');
   readonly walkinResults = signal<MemberSearchResult[]>([]);
   readonly addingWalkin = signal(false);
@@ -302,13 +338,14 @@ export class AttendanceDialogComponent {
       .pipe(
         debounceTime(250),
         distinctUntilChanged(),
+        // Both modes exclude members already Going — they're on the list.
         switchMap((q) => this.commentsService.searchMembers(this.data.eventId, q)),
       )
       .subscribe((results) => this.walkinResults.set(results));
     this.loadAttendance();
 
     effect(() => {
-      if (this.showWalkinForm()) {
+      if (this.addMode()) {
         this.walkinFormEl()?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
     });
@@ -369,9 +406,20 @@ export class AttendanceDialogComponent {
     this.walkinSearch$.next(value);
   }
 
+  toggleAddMode(mode: AddMode): void {
+    this.addMode.set(this.addMode() === mode ? null : mode);
+    this.walkinSearch.set('');
+    this.walkinResults.set([]);
+  }
+
   selectWalkin(member: MemberSearchResult): void {
+    const mode = this.addMode() ?? 'walkin';
     this.addingWalkin.set(true);
-    this.commentsService.addWalkin(this.data.eventId, member.id).subscribe({
+    const add$ =
+      mode === 'going'
+        ? this.commentsService.addGoing(this.data.eventId, member.id)
+        : this.commentsService.addWalkin(this.data.eventId, member.id);
+    add$.subscribe({
       next: (entry) => {
         this.attendanceList.update((list) => {
           const existing = list.findIndex((e) => e.userId === entry.userId);
@@ -382,15 +430,17 @@ export class AttendanceDialogComponent {
           }
           return [...list, entry];
         });
-        this.showWalkinForm.set(false);
+        this.addMode.set(null);
         this.walkinSearch.set('');
         this.walkinResults.set([]);
         this.addingWalkin.set(false);
-        this.snackBar.open(`${member.fullName} added as walk-in`, 'OK', { duration: 3000 });
+        const done = mode === 'going' ? 'marked Going' : 'added as walk-in';
+        this.snackBar.open(`${member.fullName} ${done}`, 'OK', { duration: 3000 });
       },
-      error: () => {
+      error: (err) => {
         this.addingWalkin.set(false);
-        this.snackBar.open('Failed to add walk-in', 'OK', { duration: 3000 });
+        const fallback = mode === 'going' ? 'Failed to add to Going' : 'Failed to add walk-in';
+        this.snackBar.open(err?.error?.message ?? fallback, 'OK', { duration: 3000 });
       },
     });
   }

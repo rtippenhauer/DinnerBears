@@ -3311,7 +3311,7 @@ export class EventDetailComponent implements OnInit, OnDestroy, HasUnsavedChange
 
   openAttendanceDialog(): void {
     this.dialog.open(AttendanceDialogComponent, {
-      data: { eventId: this.event()!.id },
+      data: { eventId: this.event()!.id, isAdmin: this.isAdmin() },
       width: '520px',
       maxWidth: '95vw',
     });

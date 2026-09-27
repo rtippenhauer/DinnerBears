@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Get,
   Header,
+  HttpCode,
   Param,
   ParseIntPipe,
   Patch,
@@ -26,6 +27,9 @@ import { UseGuestLinkDto } from './dto/use-guest-link.dto';
 import { CreateEventInviteDto } from './dto/create-event-invite.dto';
 import { MarkAttendanceDto } from './dto/mark-attendance.dto';
 import { AddWalkinDto } from './dto/add-walkin.dto';
+import { AddGoingDto } from './dto/add-going.dto';
+import { FacebookSyncDto } from './dto/facebook-sync.dto';
+import { FacebookSyncService } from './facebook-sync.service';
 import { SetReservationDto } from './dto/set-reservation.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../common/guards/optional-jwt-auth.guard';
@@ -40,6 +44,7 @@ export class EventsController {
   constructor(
     private readonly eventsService: EventsService,
     private readonly invitesService: InvitesService,
+    private readonly facebookSyncService: FacebookSyncService,
   ) {}
 
   @Get()
@@ -246,6 +251,34 @@ export class EventsController {
   @Roles(UserRole.MODERATOR, UserRole.ADMIN)
   resendGuestInvite(@Param('guestLinkId', ParseIntPipe) guestLinkId: number) {
     return this.eventsService.resendGuestInvite(guestLinkId);
+  }
+
+  // Phase 39: an admin marks a member Going on their behalf (the RSVP
+  // counterpart of Add Walk-in). Admin-only — moderators can add walk-ins at
+  // the door but not RSVP for people.
+  @Post(':id/attendance/going')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  addGoing(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AddGoingDto,
+    @CurrentUser() user: UserEntity,
+  ) {
+    return this.eventsService.addGoingByAdmin(id, dto.userId, dto.additionalGuests ?? 0, user.id);
+  }
+
+  // Phase 39: reconcile this event's RSVPs with the Facebook event's Going
+  // list. See FacebookSyncService for the rules.
+  @Post(':id/facebook-sync')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @HttpCode(200)
+  facebookSync(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: FacebookSyncDto,
+    @CurrentUser() user: UserEntity,
+  ) {
+    return this.facebookSyncService.sync(id, dto.attendees, user.id);
   }
 
   @Post(':id/attendance/walkin')

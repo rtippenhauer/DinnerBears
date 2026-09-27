@@ -35,6 +35,8 @@ export interface AttendanceEntry {
   isWalkin: boolean;
   fromOtherCity: boolean;
   linkUsed: boolean;
+  // Who put a member's RSVP in place (Phase 39); absent on guest rows.
+  source?: 'member' | 'admin' | 'facebook_sync';
 }
 
 export interface MemberSearchResult {
@@ -87,6 +89,10 @@ export class EventCommentsService {
 
   addWalkin(eventId: number, userId: number): Observable<AttendanceEntry> {
     return this.http.post<AttendanceEntry>(`/api/v1/events/${eventId}/attendance/walkin`, { userId });
+  }
+
+  addGoing(eventId: number, userId: number): Observable<AttendanceEntry> {
+    return this.http.post<AttendanceEntry>(`/api/v1/events/${eventId}/attendance/going`, { userId });
   }
 
   markGuestAttendance(guestLinkId: number, attended: boolean): Observable<void> {

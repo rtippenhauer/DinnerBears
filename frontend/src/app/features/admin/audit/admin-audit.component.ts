@@ -47,6 +47,15 @@ const AUDIT_ACTIONS = [
   { value: 'facebook_disconnected_by_meta_callback', label: 'Facebook Disconnected (Meta)' },
   { value: 'admin.suppress_email', label: 'Suppress Email' },
   { value: 'admin.lift_suppression', label: 'Lift Suppression' },
+  { value: 'rsvp.facebook_sync', label: 'Facebook Sync RSVP' },
+  { value: 'rsvp.admin_add_going', label: 'Admin Added to Going' },
+  { value: 'integration.create', label: 'Automation Account Created' },
+  { value: 'integration.token_issue', label: 'Muse Token Issued' },
+  { value: 'integration.token_rotate', label: 'Muse Token Rotated' },
+  { value: 'integration.token_revoke', label: 'Muse Token Revoked' },
+  { value: 'integration.sync_host_set', label: 'Sync Host Changed' },
+  { value: 'muse.invite_create', label: 'Muse Created Invite Link' },
+  { value: 'muse.invite_revoke', label: 'Muse Revoked Invite Link' },
 ];
 
 @Component({

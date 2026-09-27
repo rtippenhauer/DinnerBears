@@ -183,7 +183,7 @@ export class PointsService {
       .leftJoin('cities', 'c', 'c.id = u.city_id')
       .leftJoin('member_points', 'mp', 'mp.user_id = u.id')
       .where('u.status = :status', { status: 'active' })
-      .andWhere('u.role NOT IN (:...excludedRoles)', { excludedRoles: ['admin', UserRole.AUTOMATION] })
+      .andWhere('u.role NOT IN (:...excludedRoles)', { excludedRoles: ['admin', UserRole.AUTOMATION, UserRole.MUSE] })
       .setParameter('twa', twoWeeksAgo)
       .groupBy('u.id')
       .orderBy('totalPoints', 'DESC')

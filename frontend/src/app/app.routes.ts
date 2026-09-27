@@ -338,6 +338,14 @@ export const routes: Routes = [
     canActivate: [authGuard, adminGuard],
   },
   {
+    path: 'admin/integrations',
+    loadComponent: () =>
+      import('./features/admin/integrations/admin-integrations.component').then(
+        (m) => m.AdminIntegrationsComponent,
+      ),
+    canActivate: [authGuard, adminGuard],
+  },
+  {
     path: 'admin/cities',
     loadComponent: () =>
       import('./features/admin/cities/admin-cities.component').then(

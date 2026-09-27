@@ -12,6 +12,15 @@ import { EventEntity } from './event.entity';
 import { EventGuestLinkEntity } from './event-guest-link.entity';
 import { UserEntity } from './user.entity';
 
+// Who put this RSVP in place (Phase 39). The Facebook sync may only ever
+// remove RSVPs it created itself; the moment a member touches their own RSVP
+// it becomes MEMBER-owned and the sync leaves it alone for good.
+export enum RsvpSource {
+  MEMBER = 'member',
+  ADMIN = 'admin',
+  FACEBOOK_SYNC = 'facebook_sync',
+}
+
 export enum RsvpStatus {
   GOING = 'going',
   MAYBE = 'maybe',
@@ -51,6 +60,9 @@ export class EventRsvpEntity {
   // server-side — same trust model as guestNames.
   @Column({ name: 'bringing_item', type: 'varchar', length: 200, nullable: true })
   bringingItem: string | null;
+
+  @Column({ type: 'enum', enum: RsvpSource, default: RsvpSource.MEMBER })
+  source: RsvpSource;
 
   @Column({ type: 'tinyint', nullable: true, default: null })
   attended: boolean | null;
