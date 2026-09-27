@@ -60,6 +60,27 @@ export class AddFacebookAttendees1785000000014 implements MigrationInterface {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    // Undo what the first Phase 39 build did to its sync host's RSVP (only ever
+    // deployed to stage): it owned that RSVP's +1 list outright, filling it
+    // with unmatched Facebook names, and may have created the RSVP just to hold
+    // them. Those people are Facebook-only attendees now, so clear the names —
+    // or they'd count twice — and hand the RSVP to the member, so the new sync
+    // doesn't remove it as one it made. Found through the old sync's audit
+    // entries; a database that never ran that build has none, so this is a
+    // no-op there.
+    await queryRunner.query(`
+      UPDATE event_rsvps r
+      JOIN (
+        SELECT DISTINCT
+          a.entity_id AS event_id,
+          CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.targetUserId')) AS UNSIGNED) AS user_id
+        FROM audit_log a
+        WHERE a.action = 'rsvp.facebook_sync'
+          AND JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.change')) = 'host_guests'
+      ) h ON h.event_id = r.event_id AND h.user_id = r.user_id
+      SET r.guest_names = NULL, r.additional_guests = 0, r.source = 'member'
+    `);
+
     await queryRunner.query(`DELETE FROM app_config WHERE config_key = 'facebook_sync_host_user_id'`);
   }
 
