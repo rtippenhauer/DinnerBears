@@ -53,7 +53,12 @@ const AUDIT_ACTIONS = [
   { value: 'integration.token_issue', label: 'Muse Token Issued' },
   { value: 'integration.token_rotate', label: 'Muse Token Rotated' },
   { value: 'integration.token_revoke', label: 'Muse Token Revoked' },
-  { value: 'integration.sync_host_set', label: 'Sync Host Changed' },
+  { value: 'facebook.sync', label: 'Facebook Sync Run' },
+  { value: 'facebook.event_link', label: 'Facebook Event Linked' },
+  { value: 'facebook.event_unlink', label: 'Facebook Event Unlinked' },
+  { value: 'facebook.account_link', label: 'Facebook Account Linked' },
+  { value: 'facebook.account_unlink', label: 'Facebook Account Unlinked' },
+  { value: 'facebook.account_not_member', label: 'Facebook Account: Not a Member' },
   { value: 'muse.invite_create', label: 'Muse Created Invite Link' },
   { value: 'muse.invite_revoke', label: 'Muse Revoked Invite Link' },
 ];

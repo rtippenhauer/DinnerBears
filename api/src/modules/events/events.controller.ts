@@ -5,7 +5,6 @@ import {
   ForbiddenException,
   Get,
   Header,
-  HttpCode,
   Param,
   ParseIntPipe,
   Patch,
@@ -28,8 +27,7 @@ import { CreateEventInviteDto } from './dto/create-event-invite.dto';
 import { MarkAttendanceDto } from './dto/mark-attendance.dto';
 import { AddWalkinDto } from './dto/add-walkin.dto';
 import { AddGoingDto } from './dto/add-going.dto';
-import { FacebookSyncDto } from './dto/facebook-sync.dto';
-import { FacebookSyncService } from './facebook-sync.service';
+import { MarkFacebookAttendanceDto } from './dto/mark-facebook-attendance.dto';
 import { SetReservationDto } from './dto/set-reservation.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../common/guards/optional-jwt-auth.guard';
@@ -44,7 +42,6 @@ export class EventsController {
   constructor(
     private readonly eventsService: EventsService,
     private readonly invitesService: InvitesService,
-    private readonly facebookSyncService: FacebookSyncService,
   ) {}
 
   @Get()
@@ -267,18 +264,15 @@ export class EventsController {
     return this.eventsService.addGoingByAdmin(id, dto.userId, dto.additionalGuests ?? 0, user.id);
   }
 
-  // Phase 39: reconcile this event's RSVPs with the Facebook event's Going
-  // list. See FacebookSyncService for the rules.
-  @Post(':id/facebook-sync')
+  // Phase 39: Attended / No-show for a Facebook-only attendee.
+  @Patch('facebook-attendees/:facebookAttendeeId/attendance')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @HttpCode(200)
-  facebookSync(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: FacebookSyncDto,
-    @CurrentUser() user: UserEntity,
+  @Roles(UserRole.MODERATOR, UserRole.ADMIN)
+  markFacebookAttendance(
+    @Param('facebookAttendeeId', ParseIntPipe) facebookAttendeeId: number,
+    @Body() dto: MarkFacebookAttendanceDto,
   ) {
-    return this.facebookSyncService.sync(id, dto.attendees, user.id);
+    return this.eventsService.markFacebookAttendance(facebookAttendeeId, dto.attended);
   }
 
   @Post(':id/attendance/walkin')

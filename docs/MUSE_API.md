@@ -8,11 +8,13 @@ What Muse can do:
 | Data | Access |
 |---|---|
 | Events, locations, members | Read only |
-| RSVPs | Created, updated and removed through the Facebook sync |
+| Facebook events linked to a dinner | Read, link, unlink |
+| Going lists and RSVPs | Push Facebook Going lists; the server works out the RSVP changes |
 | Invite links | List, create, revoke |
 
-Muse keeps its own mapping from Facebook events to DinnerBears event IDs.
-DinnerBears doesn't store Facebook IDs.
+DinnerBears is the source of truth for which Facebook events mirror which
+dinner. One dinner can have several Facebook events, for example one in the
+Cincinnati group and one in Gem City Bears.
 
 | | |
 |---|---|
@@ -21,6 +23,9 @@ DinnerBears doesn't store Facebook IDs.
 | Auth | `Authorization: Bearer cet_…` on **every** request |
 | Format | JSON request and response bodies (`Content-Type: application/json`) |
 | Rate limit | 120 requests per minute |
+
+Stage and production are separate sites with separate event IDs, members and
+tokens. Keep a separate setup for each.
 
 Only the `/api/v1/muse/...` routes accept the token. It does not work on the
 website's own endpoints (such as `/api/v1/events`), and it is never accepted
@@ -31,16 +36,17 @@ as a query parameter or a cookie.
 Errors come back as JSON with an HTTP status:
 
 ```json
-{ "statusCode": 400, "message": "Can only RSVP to published events" }
+{ "statusCode": 400, "message": "…" }
 ```
 
 `message` can also be an array of validation messages.
 
 | Status | Meaning |
 |---|---|
-| `400` | The request body failed validation, or the action isn't allowed (for example, syncing a past or draft event). |
+| `400` | The request body failed validation. |
 | `401` | The token is missing, wrong, revoked or expired, or the account isn't a Muse account. |
 | `404` | The event or invite link wasn't found. |
+| `409` | That Facebook event is already linked to a different dinner. |
 | `429` | Rate limited. Back off and retry. |
 
 ---
@@ -48,8 +54,7 @@ Errors come back as JSON with an HTTP status:
 ## Token
 
 The token is created by an admin at **Admin → Settings → Automation Accounts**.
-It's shown once and lasts **60 days**. Muse should rotate it before it expires.
-If it does expire, only an admin can issue a new one.
+It's shown once and lasts **60 days**. Muse rotates it itself.
 
 ### `GET /me`
 
@@ -70,17 +75,18 @@ Response `200`:
 { "token": "cet_…", "tokenPrefix": "cet_AbCdEfGh", "expiresAt": "2026-11-26T05:00:00.000Z" }
 ```
 
-Suggested rule: at the start of each run, call `GET /me`, and rotate if
-`tokenExpiresAt` is less than 14 days away.
+At the start of each run, call `GET /me` and rotate if `tokenExpiresAt` is less
+than 14 days away. If the token does expire, an admin has to issue a new one.
 
 ---
 
-## Members
+## Members (read only)
 
 ### `GET /users`
 
-Every active member. Match Facebook names against this list. It returns names
-and IDs only, with no contact details.
+Every active member, with names and IDs only (no contact details). Muse doesn't
+need this for matching, since the server does all matching. It's here for
+display.
 
 Response `200`:
 
@@ -90,8 +96,6 @@ Response `200`:
   { "id": 5, "fullName": "Jane Doe", "cityId": 1, "role": "member" }
 ]
 ```
-
-`role` is one of `member`, `non_validated`, `moderator`, `admin`.
 
 ---
 
@@ -107,9 +111,11 @@ Response `200`:
 
 ### `GET /locations?cityId=1&search=pho`
 
-Both query parameters are optional. `search` matches on the name.
+Both query parameters are optional. `search` matches on the name. For a private
+location (someone's home), `address`, `lat`, `lng` and `photos` come back
+empty.
 
-Response `200`: an array of locations.
+Response `200`:
 
 ```json
 [
@@ -117,31 +123,20 @@ Response `200`: an array of locations.
     "id": 42,
     "name": "Pho Lang Thang",
     "address": "1828 Vine St, Cincinnati, OH 45202",
-    "lat": "39.1162000",
-    "lng": "-84.5155000",
-    "phone": "(513) 555-0100",
-    "websiteUrl": "https://example.com",
-    "description": null,
     "cityId": 1,
-    "isActive": true,
     "isPrivate": false,
     "isResidence": false,
-    "photos": [],
-    "createdAt": "2026-01-10T18:00:00.000Z",
-    "updatedAt": "2026-01-10T18:00:00.000Z"
+    "…": "…"
   }
 ]
 ```
-
-For a private location (someone's home), `address`, `lat`, `lng` and `photos`
-come back empty.
 
 ---
 
 ## Events (read only)
 
-Events are created and edited on the website. Muse reads them to find the
-DinnerBears event ID for each Facebook event.
+Events are created and edited on the website. Every event Muse reads includes
+its linked Facebook events.
 
 ### Event object
 
@@ -150,48 +145,97 @@ ignore any you don't need.
 
 ```json
 {
-  "id": 12,
-  "cityId": 1,
+  "id": 21,
+  "cityId": 2,
   "locationId": 42,
-  "locationName": "Pho Lang Thang",
-  "locationAddress": "1828 Vine St, Cincinnati, OH 45202",
-  "title": "Tuesday Dinner",
-  "description": null,
-  "additionalInfo": null,
-  "eventDate": "2026-10-06",
+  "locationName": "Shen's Szechuan & Sushi",
+  "title": "Wednesday Night Bears",
+  "eventDate": "2026-10-07",
   "eventTime": "18:30:00",
   "status": "published",
-  "isSecret": false,
-  "facebookShareText": null,
-  "publishedAt": "2026-09-27T05:00:00.000Z",
-  "cancelledAt": null,
-  "createdAt": "2026-09-27T05:00:00.000Z",
-  "updatedAt": "2026-09-27T05:00:00.000Z"
+  "goingCount": 7,
+  "facebookEvents": [
+    {
+      "facebookEventId": "1617936020344888",
+      "group": "Cincinnati Tuesday Night Bear Dinners",
+      "url": "https://www.facebook.com/events/1617936020344888/",
+      "lastSyncedAt": "2026-09-27T14:13:00.000Z",
+      "lastGoingCount": 3
+    },
+    {
+      "facebookEventId": "1072447435694919",
+      "group": "Gem City Bears",
+      "url": "https://www.facebook.com/events/1072447435694919/",
+      "lastSyncedAt": null,
+      "lastGoingCount": null
+    }
+  ]
 }
 ```
 
-- `status` is `draft`, `published` or `cancelled`.
-- All dates and times are Eastern.
+- `status` is `draft`, `published` or `cancelled`. All dates and times are
+  Eastern.
+- `goingCount` (on the list endpoint) is members Going plus their +1s, plus
+  Facebook-only attendees plus their +1s. The sync's `totalGoing` also adds
+  public guest signups, so use `totalGoing` for the Facebook description.
+- An empty `facebookEvents` means Muse hasn't created the Facebook event yet.
 
 ### `GET /events?cityId=1&fromDate=2026-10-01`
 
 Upcoming events, including drafts. Both query parameters are optional.
 `fromDate` (`YYYY-MM-DD`) replaces the default "upcoming" filter.
 
-Response `200`: an array of event objects. Each one also has `goingCount`,
-`totalAttending` (Going members plus their +1s) and `location`.
+Response `200`: an array of event objects.
 
 ### `GET /events/:id`
 
-Response `200`: the event object, plus `location`, `city`, `rsvps` and
-`publicRsvps`. For RSVPs, `GET /events/:id/attendees` below is easier to work
-with.
+Response `200`: the event object, plus `location`, `city`, `rsvps`,
+`publicRsvps` and `facebookAttendees`.
+
+---
+
+## Facebook events linked to a dinner
+
+`facebookEventId` is the digits from `facebook.com/events/<id>`. A Facebook
+event can be linked to only one dinner. The sync also links automatically, so
+these calls are only needed when Muse creates a Facebook event and wants the
+link recorded before its first sync.
+
+### `PUT /events/:id/facebook-events/:facebookEventId`
+
+Links the Facebook event, or updates its group. Safe to repeat.
+
+Request:
+
+```json
+{ "group": "Gem City Bears" }
+```
+
+Response `200`:
+
+```json
+{ "facebookEventId": "1072447435694919", "group": "Gem City Bears", "url": "https://www.facebook.com/events/1072447435694919/", "lastSyncedAt": null, "lastGoingCount": null }
+```
+
+Returns `409` if the Facebook event is already linked to a different dinner,
+and `400` if the ID isn't all digits.
+
+### `DELETE /events/:id/facebook-events/:facebookEventId`
+
+Unlinks the Facebook event and drops its Going list from the dinner. Anyone who
+was only on that list stops counting. No body.
+
+Response `200`:
+
+```json
+{ "success": true }
+```
 
 ---
 
 ## Invite links
 
-These are the same links as the event page's **Share** dialog:
+These are the same links as the event page's Share dialog:
 
 - **`member`**: full membership.
 - **`non_validated`**: requires validation by a moderator.
@@ -215,7 +259,8 @@ Links expire at the RSVP cutoff, 2.5 hours before the event starts.
 ### `GET /events/:id/invite-links`
 
 The active link for each flavor (the newest one that isn't revoked), plus every
-link ever made for the event.
+link made for the event. `member` or `nonValidated` is `null` when that flavor
+has no active link.
 
 Response `200`:
 
@@ -226,9 +271,6 @@ Response `200`:
   "all": [ { "…": "…" } ]
 }
 ```
-
-`member` or `nonValidated` is `null` when that flavor has no active link. Create
-one with the call below.
 
 ### `POST /events/:id/invite-links`
 
@@ -244,7 +286,7 @@ Response `201`: the new invite link object.
 
 ### `PATCH /events/:id/invite-links/:inviteId/revoke`
 
-No body.
+No body. Returns `404` if that link doesn't belong to this event.
 
 Response `200`:
 
@@ -252,22 +294,19 @@ Response `200`:
 { "success": true }
 ```
 
-Returns `404` if that link doesn't belong to this event.
-
 ---
 
 ## Attendees
 
 ### `GET /events/:id/attendees`
 
-Every member RSVP, in any status, plus people who signed up with the public
-guest form.
+Everyone signed up for the dinner, from every source.
 
 Response `200`:
 
 ```json
 {
-  "eventId": 12,
+  "eventId": 21,
   "members": [
     {
       "userId": 5,
@@ -283,106 +322,158 @@ Response `200`:
   ],
   "publicGuests": [
     { "guestLinkId": 3, "name": "Pat Smith", "attended": null, "createdAt": "2026-09-27T05:00:00.000Z" }
-  ]
+  ],
+  "facebookOnly": [
+    { "facebookAccountId": 12, "name": "Don Weaver", "plusOnes": 0, "attended": null }
+  ],
+  "totalGoing": 4
 }
 ```
 
 - `status` is `going`, `maybe` or `not_going`.
-- `source` shows who created the RSVP: `member` (the member themselves),
+- `source` shows who created a member's RSVP: `member` (the member themselves),
   `admin` (an admin's "Add to Going"), or `facebook_sync`.
-- `attended` is `null` until attendance is marked.
+- `facebookOnly` lists people Going on Facebook whose Facebook account isn't
+  linked to a member yet.
+- `totalGoing` is the merged headcount (defined under the sync below).
 
 ---
 
-## Facebook RSVP sync
+## Facebook sync
 
-### `POST /events/:id/facebook-sync`
+### `POST /facebook-sync`
 
-Send the **whole** current Going list from Facebook every time. Leave out anyone
-marked "Interested". The server applies all the rules below, so sending the same
-list twice changes nothing the second time.
+Send the Going lists for one or more Facebook events in a single call. This is
+Muse's extraction format as-is. The server:
+
+1. applies every list first,
+2. then reconciles each affected dinner against all of its lists together,
+3. then works out the counts.
+
+So every Facebook event gets back its dinner's **final** merged headcount.
 
 Request:
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `attendees` | array | yes | Up to 500 entries. `[]` means nobody is Going on Facebook. |
-| `attendees[].name` | string | yes | Name as shown on Facebook. Matched against members' full names, ignoring case, accents and extra spaces. |
-| `attendees[].plusOnes` | number | no | 0–20. The +1s read from the Facebook comments. |
-| `attendees[].userId` | number | no | Use this member directly, without name matching. For when a Facebook name doesn't match the website name. |
+| `events` | array | yes | Up to 100 Facebook events. |
+| `events[].dinnerbears_event_id` | number | yes | The dinner this Facebook event mirrors. |
+| `events[].facebook_event_id` | string | yes | Digits from the Facebook event URL. Linked automatically on first sight. |
+| `events[].facebook_group` | string | no | The Facebook group, e.g. `Gem City Bears`. |
+| `events[].going_count` | number | no | Facebook's own Going count. If it doesn't match `guests`, the list is treated as partial and nobody is removed for that event. |
+| `events[].guests` | array | yes | Everyone on the Going tab, up to 500. Leave out "Interested". `[]` means nobody is Going. |
+| `events[].guests[].name` | string | yes | Name as shown on Facebook. |
+| `events[].guests[].profile_url` | string | yes | The person's **current** vanity URL. |
+| `events[].guests[].facebook_user_id` | string | yes | The numeric Facebook profile ID. This is the permanent key; a changed vanity URL just updates. |
+| `events[].guests[].plus_ones` | number | no | 0–20. The +1s read from the Facebook comments. |
+| `events[].facebook_event_url`, `events[].title` | string | no | Informational; ignored. |
+| `extracted_at` | ISO date | no | When the lists were read. A Facebook event whose last applied list is newer is skipped. |
+| `note` | string | no | Informational; ignored. |
 
 ```json
 {
-  "attendees": [
-    { "name": "Jane Doe", "plusOnes": 1 },
-    { "name": "Some Stranger", "plusOnes": 1 },
-    { "name": "Jimmy D", "userId": 57 }
-  ]
+  "events": [
+    {
+      "dinnerbears_event_id": 21,
+      "facebook_event_id": "1617936020344888",
+      "facebook_group": "Cincinnati Tuesday Night Bear Dinners",
+      "going_count": 3,
+      "guests": [
+        { "name": "Rob Tippenhauer", "profile_url": "https://www.facebook.com/rob.tippenhauer", "facebook_user_id": "100000000000001" },
+        { "name": "Don Weaver", "profile_url": "https://www.facebook.com/don.weaver.718", "facebook_user_id": "100000000000002", "plus_ones": 1 }
+      ]
+    },
+    {
+      "dinnerbears_event_id": 21,
+      "facebook_event_id": "1072447435694919",
+      "facebook_group": "Gem City Bears",
+      "going_count": 1,
+      "guests": [
+        { "name": "Steve Brack", "profile_url": "https://www.facebook.com/SSBohio", "facebook_user_id": "100000000000003" }
+      ]
+    }
+  ],
+  "extracted_at": "2026-09-27T10:13:00-04:00"
 }
 ```
 
-Rules:
+**How people are counted.** Every Facebook person is saved as a Facebook account,
+keyed by `facebook_user_id`. An admin links accounts to members on the website
+(**Admin → Security → Facebook Accounts**); one member can have several. The
+server never links anyone by name on its own, though it suggests likely matches.
 
 | Situation | Result |
 |---|---|
-| Matched member, not Going on the website | Marked Going, with their +1s on their own RSVP. They get the usual confirmation email, with a note that the Facebook sync added them. |
-| Matched member already Going on the website | Their +1s are raised if Facebook shows more. They are **never lowered**. |
-| Going on the website but not on Facebook | Left alone. |
-| The sync marked them Going, and they're no longer on Facebook's list | Their RSVP is removed. |
-| RSVP created on the website (by the member or an admin) | **Never removed** by the sync. |
-| No match, or two or more members share the name | Recorded, with their +1s, as guest names on the **sync host's** RSVP. For example: `Some Stranger`, `Some Stranger +1`. |
+| Account linked to a member who isn't Going on the website | Marked Going, with their +1s. They get the usual confirmation email, noting the Facebook sync added them. |
+| Linked member already Going | Their +1s are raised if Facebook shows more. They are **never lowered**. |
+| Linked member with two Facebook accounts, or on both groups' lists | Counted once. |
+| Linked member no longer on **any** of the dinner's Facebook lists | Removed, but only if the sync made their RSVP. |
+| RSVP made on the website (by the member or an admin) | **Never removed** by the sync. |
+| Account not linked to a member | A **Facebook-only attendee**: counted, with their +1s, and shown on the event page and in the attendance dialog. Counted once however many lists they're on. |
+| Account linked to a banned or deleted member | Not added and not counted; listed in `warnings`. |
 
-The sync host is set on the admin page. On this site it's Rob. The sync manages
-the host's guest list for synced events, replacing it on each run.
+Each Facebook event's list is tracked separately. Someone who drops off the
+Cincinnati list but is still on the Gem City Bears list is still Going.
 
-The sync skips the RSVP deadline and the membership-fee check. It returns `400`
-for draft and past events.
+**Headcount (`totalGoing`)** is members Going plus their +1s, plus Facebook-only
+attendees plus their +1s, plus public guest signups. Write it into that
+Facebook event's description.
 
 Response `200`:
 
 ```json
 {
-  "eventId": 12,
-  "added":     [{ "userId": 5, "name": "Jane Doe", "facebookName": "Jane Doe", "plusOnes": 1 }],
-  "raised":    [{ "userId": 8, "name": "Bob Brown", "facebookName": "Bob Brown", "plusOnes": 3, "from": 2 }],
-  "unchanged": [{ "userId": 9, "name": "Alice Anders", "facebookName": "Alice Anders", "plusOnes": 0 }],
-  "removed":   [{ "userId": 11, "name": "Carl Carter" }],
-  "unmatched": [{ "name": "Some Stranger", "plusOnes": 1 }],
-  "ambiguous": [{ "name": "Dan Smith", "candidates": [{ "id": 3, "fullName": "Dan Smith" }, { "id": 4, "fullName": "Dan Smith" }] }],
-  "host": {
-    "userId": 1,
-    "name": "Rob Tippenhauer",
-    "guestNames": ["Some Stranger", "Some Stranger +1", "Dan Smith"],
-    "additionalGuests": 3,
-    "changed": true
-  },
-  "warnings": []
+  "extractedAt": "2026-09-27T10:13:00-04:00",
+  "events": [
+    { "facebookEventId": "1617936020344888", "dinnerbearsEventId": 21, "group": "Cincinnati Tuesday Night Bear Dinners", "status": "ok", "accepted": 2, "complete": false, "totalGoing": 5 },
+    { "facebookEventId": "1072447435694919", "dinnerbearsEventId": 21, "group": "Gem City Bears", "status": "ok", "accepted": 1, "complete": true, "totalGoing": 5 }
+  ],
+  "added":   [{ "eventId": 21, "userId": 5, "name": "Jane Doe", "plusOnes": 1 }],
+  "raised":  [{ "eventId": 21, "userId": 8, "name": "Bob Brown", "plusOnes": 3, "from": 2 }],
+  "removed": [{ "eventId": 21, "userId": 11, "name": "Carl Carter" }],
+  "unmatched": [
+    {
+      "facebookAccountId": 12,
+      "name": "Don Weaver",
+      "profileUrl": "https://www.facebook.com/don.weaver.718",
+      "suggestions": [{ "id": 31, "fullName": "Don Weaver" }]
+    }
+  ],
+  "warnings": ["Facebook event 1617936020344888: going_count didn't match the guests sent — nobody was removed from it"]
 }
 ```
 
-- `ambiguous` lists names shared by more than one member. On later runs, send
-  those people with an explicit `userId`.
-- `host` is `null` when no sync host is set. In that case `warnings` says the
-  unmatched people weren't recorded.
+- `events[].status` is `ok`, `skipped` (an older list than the one already
+  applied) or `error`. On `error`, `error` says why, for example "already
+  linked to event 27", or the dinner is a draft or already past. One failed
+  Facebook event doesn't stop the others.
+- `unmatched` lists Facebook people not yet linked to a member (and not marked
+  "not a member"). `suggestions` holds members with the same name, for Rob to
+  confirm on the Facebook Accounts page.
 
 ---
 
 ## Suggested run
 
 1. `GET /me`. Rotate the token if it expires within 14 days.
-2. `GET /events` to find the DinnerBears event ID for each Facebook event, and
-   keep that mapping on Muse's side.
-3. For each upcoming event:
-   1. `GET /events/:id/invite-links`. Create any missing flavor with
-      `POST /events/:id/invite-links`, then post the URLs to Facebook.
-   2. `POST /events/:id/facebook-sync` with the Going list.
-4. Log each sync report, especially `ambiguous` and `warnings`.
+2. `GET /events` for upcoming dinners and their `facebookEvents`.
+3. For each dinner with no Facebook event, create one on Facebook: the
+   Cincinnati group always, plus Gem City Bears for Dayton dinners. Record each
+   one with `PUT /events/:id/facebook-events/:facebookEventId`.
+4. For each dinner, `GET /events/:id/invite-links`. Create any missing flavor
+   with `POST /events/:id/invite-links`, and post the URLs to Facebook.
+5. Read every linked Facebook event's Going list, then send them all in one
+   `POST /facebook-sync`.
+6. Write each Facebook event's `totalGoing` into its description, for example
+   "Currently we have 5 going (as of 10:13 AM)".
+7. Log the report, especially `unmatched` and `warnings`.
 
 ## Audit
 
 Every write shows up in the website's audit log (**Admin → Security → Audit
 Log**) under the Muse account:
 
+- `facebook.sync` (one per run), `rsvp.facebook_sync` (one per RSVP changed)
+- `facebook.event_link`, `facebook.event_unlink`
 - `muse.invite_create`, `muse.invite_revoke`
-- `rsvp.facebook_sync` (one entry per RSVP changed)
 - `integration.token_rotate`

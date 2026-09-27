@@ -55,7 +55,11 @@ type AddMode = 'walkin' | 'going';
         <div class="attendance-list">
           @for (
             entry of attendanceList();
-            track entry.type === 'member' ? 'm' + entry.userId : 'g' + entry.guestLinkId
+            track entry.type === 'member'
+              ? 'm' + entry.userId
+              : entry.type === 'facebook'
+                ? 'f' + entry.facebookAttendeeId
+                : 'g' + entry.guestLinkId
           ) {
             <div class="attendance-row" [class.att-guest-row]="entry.type === 'guest'">
               <span class="att-name">
@@ -67,6 +71,9 @@ type AddMode = 'walkin' | 'going';
                   <span class="source-badge" matTooltip="Marked Going by the Facebook sync">Facebook</span>
                 } @else if (entry.source === 'admin') {
                   <span class="source-badge" matTooltip="Added to Going by an admin">Added</span>
+                }
+                @if (entry.type === 'facebook') {
+                  <span class="source-badge" matTooltip="Going on Facebook, not linked to a member yet">Facebook</span>
                 }
                 @if (entry.type === 'guest') {
                   <span class="guest-badge">Guest</span>
@@ -96,6 +103,23 @@ type AddMode = 'walkin' | 'going';
                     mat-stroked-button
                     [class.att-no]="entry.attended === false"
                     (click)="setAttended(entry.userId!, false)"
+                  >
+                    <mat-icon>close</mat-icon> No-show
+                  </button>
+                </div>
+              } @else if (entry.type === 'facebook') {
+                <div class="att-btns">
+                  <button
+                    mat-stroked-button
+                    [class.att-yes]="entry.attended === true"
+                    (click)="setFacebookAttended(entry.facebookAttendeeId!, true)"
+                  >
+                    <mat-icon>check</mat-icon> Attended
+                  </button>
+                  <button
+                    mat-stroked-button
+                    [class.att-no]="entry.attended === false"
+                    (click)="setFacebookAttended(entry.facebookAttendeeId!, false)"
                   >
                     <mat-icon>close</mat-icon> No-show
                   </button>
@@ -391,6 +415,20 @@ export class AttendanceDialogComponent {
       },
       error: () =>
         this.snackBar.open('Failed to update guest attendance', 'OK', { duration: 3000 }),
+    });
+  }
+
+  // Saved straight away like guest rows. No points until the Facebook
+  // account is linked to a member — then this carries over.
+  setFacebookAttended(facebookAttendeeId: number, attended: boolean): void {
+    this.commentsService.markFacebookAttendance(facebookAttendeeId, attended).subscribe({
+      next: () => {
+        this.attendanceList.update((list) =>
+          list.map((e) => (e.facebookAttendeeId === facebookAttendeeId ? { ...e, attended } : e)),
+        );
+      },
+      error: () =>
+        this.snackBar.open('Failed to update Facebook attendance', 'OK', { duration: 3000 }),
     });
   }
 

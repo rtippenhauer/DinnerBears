@@ -24,6 +24,7 @@ import { FeedbackModule } from './modules/feedback/feedback.module';
 import { ReleasesModule } from './modules/releases/releases.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { MuseModule } from './modules/muse/muse.module';
+import { FacebookModule } from './modules/facebook/facebook.module';
 import { AnnouncementsModule } from './modules/announcements/announcements.module';
 import { EventCommentsModule } from './modules/event-comments/event-comments.module';
 import { TasksModule } from './modules/tasks/tasks.module';
@@ -84,6 +85,7 @@ import { AvatarsModule } from './modules/avatars/avatars.module';
     ReleasesModule,
     IntegrationsModule,
     MuseModule,
+    FacebookModule,
     AnnouncementsModule,
     EventCommentsModule,
     TasksModule,

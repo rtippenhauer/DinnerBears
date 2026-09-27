@@ -1,4 +1,4 @@
-import { Component, computed, inject, OnInit, signal, ChangeDetectionStrategy } from '@angular/core';
+import { Component, inject, OnInit, signal, ChangeDetectionStrategy } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Clipboard } from '@angular/cdk/clipboard';
@@ -12,10 +12,8 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import {
   AutomationRole,
-  HostCandidate,
   Integration,
   IntegrationsService,
-  SyncHost,
 } from '../../../core/services/integrations.service';
 
 // Phase 39: automation accounts — Claude's and Muse's. Muse accounts get an
@@ -130,21 +128,6 @@ import {
           }
         </section>
 
-        <section class="card">
-          <h3>Facebook sync host</h3>
-          <p class="intro">
-            Facebook attendees who don't match a member are recorded as +1 guests on this member's RSVP.
-            The sync manages that member's guest list for synced events.
-          </p>
-          <mat-form-field appearance="outline" class="host-field">
-            <mat-label>Sync host</mat-label>
-            <mat-select [value]="syncHost()?.id ?? null" (selectionChange)="setHost($event.value)" [disabled]="busy()">
-              @for (c of hostCandidates(); track c.id) {
-                <mat-option [value]="c.id">{{ c.fullName }}</mat-option>
-              }
-            </mat-select>
-          </mat-form-field>
-        </section>
       }
     </div>
   `,
@@ -208,10 +191,6 @@ import {
         background: #ede7f6;
         color: #4527a0;
         vertical-align: middle;
-      }
-      .host-field {
-        width: 100%;
-        max-width: 360px;
       }
       .empty {
         color: #999;
@@ -294,8 +273,6 @@ export class AdminIntegrationsComponent implements OnInit {
   readonly loading = signal(true);
   readonly busy = signal(false);
   readonly integrations = signal<Integration[]>([]);
-  readonly syncHost = signal<SyncHost | null>(null);
-  private readonly candidates = signal<HostCandidate[]>([]);
   readonly issued = signal<{ name: string; token: string; expiresAt: string } | null>(null);
 
   readonly nameControl = new FormControl('', {
@@ -305,24 +282,14 @@ export class AdminIntegrationsComponent implements OnInit {
 
   readonly roleControl = new FormControl<AutomationRole>('muse', { nonNullable: true });
 
-  readonly hostCandidates = computed(() =>
-    this.candidates()
-      .filter((c) => c.status === 'active' && c.role !== 'automation' && c.role !== 'muse')
-      .sort((a, b) => a.fullName.localeCompare(b.fullName)),
-  );
-
   ngOnInit(): void {
     this.load();
-    this.integrationsService.hostCandidates().subscribe({
-      next: (users) => this.candidates.set(users),
-    });
   }
 
   private load(): void {
     this.integrationsService.list().subscribe({
-      next: ({ integrations, syncHost }) => {
+      next: ({ integrations }) => {
         this.integrations.set(integrations);
-        this.syncHost.set(syncHost);
         this.loading.set(false);
       },
       error: () => {
@@ -381,21 +348,6 @@ export class AdminIntegrationsComponent implements OnInit {
       error: () => {
         this.busy.set(false);
         this.snackBar.open('Failed to revoke token', 'OK', { duration: 3000 });
-      },
-    });
-  }
-
-  setHost(userId: number): void {
-    this.busy.set(true);
-    this.integrationsService.setSyncHost(userId).subscribe({
-      next: (host) => {
-        this.busy.set(false);
-        this.syncHost.set(host);
-        this.snackBar.open(`Sync host set to ${host.fullName}`, 'OK', { duration: 2500 });
-      },
-      error: () => {
-        this.busy.set(false);
-        this.snackBar.open('Failed to set sync host', 'OK', { duration: 3000 });
       },
     });
   }

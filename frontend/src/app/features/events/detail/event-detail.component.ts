@@ -644,7 +644,11 @@ import { formatEventTime, initials as sharedInitials } from '../../../shared/uti
                 <mat-divider class="rsvp-divider" />
 
                 <!-- Attendee list -->
-                @if (event()!.rsvps.length === 0 && event()!.publicRsvps.length === 0) {
+                @if (
+                  event()!.rsvps.length === 0 &&
+                  event()!.publicRsvps.length === 0 &&
+                  (event()!.facebookAttendees ?? []).length === 0
+                ) {
                   <p class="no-rsvps">No RSVPs yet — be the first!</p>
                 } @else if (!isLoggedIn()) {
                   <p class="no-rsvps"><a routerLink="/login">Sign in</a> to see who's going.</p>
@@ -703,6 +707,22 @@ import { formatEventTime, initials as sharedInitials } from '../../../shared/uti
                         <div class="attendee-info">
                           <span class="attendee-name">{{ p.recipientName || 'Guest' }}</span>
                           <span class="attendee-guest-badge">guest</span>
+                        </div>
+                      </li>
+                    }
+                    @for (f of event()!.facebookAttendees ?? []; track f.id) {
+                      <li class="attendee-row">
+                        <div class="attendee-avatar attendee-avatar-guest">
+                          <mat-icon class="guest-avatar-icon">person</mat-icon>
+                        </div>
+                        <div class="attendee-info">
+                          <div class="attendee-name-row">
+                            <span class="attendee-name">{{ f.name }}</span>
+                            <span class="attendee-facebook-badge">Facebook</span>
+                          </div>
+                          @if (f.plusOnes > 0) {
+                            <span class="attendee-guests">+{{ f.plusOnes }}</span>
+                          }
                         </div>
                       </li>
                     }
@@ -1824,6 +1844,17 @@ import { formatEventTime, initials as sharedInitials } from '../../../shared/uti
         color: #bbb;
         font-style: italic;
       }
+      .attendee-facebook-badge {
+        display: inline-block;
+        font-size: 0.68rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        padding: 1px 6px;
+        border-radius: 8px;
+        background: #e3eafc;
+        color: #1b4db1;
+      }
       .attendee-guest-badge {
         font-size: 0.68rem;
         font-weight: 600;
@@ -2519,7 +2550,8 @@ export class EventDetailComponent implements OnInit, OnDestroy, HasUnsavedChange
         return sum + 1 + r.additionalGuests - cancelled;
       }, 0);
     const publicSeats = (e.publicRsvps ?? []).length;
-    return memberSeats + publicSeats;
+    const facebookSeats = (e.facebookAttendees ?? []).reduce((sum, f) => sum + 1 + f.plusOnes, 0);
+    return memberSeats + publicSeats + facebookSeats;
   });
 
   readonly maybeCount = computed<number>(() => {

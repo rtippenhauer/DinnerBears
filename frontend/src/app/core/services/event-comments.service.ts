@@ -26,9 +26,11 @@ export interface Comment {
 }
 
 export interface AttendanceEntry {
-  type: 'member' | 'guest';
+  type: 'member' | 'guest' | 'facebook';
   userId?: number;
   guestLinkId?: number;
+  // Phase 39: a Facebook-only attendee (not linked to a member yet).
+  facebookAttendeeId?: number;
   memberName: string;
   recipientEmail?: string | null;
   attended: boolean | null;
@@ -93,6 +95,10 @@ export class EventCommentsService {
 
   addGoing(eventId: number, userId: number): Observable<AttendanceEntry> {
     return this.http.post<AttendanceEntry>(`/api/v1/events/${eventId}/attendance/going`, { userId });
+  }
+
+  markFacebookAttendance(facebookAttendeeId: number, attended: boolean): Observable<void> {
+    return this.http.patch<void>(`/api/v1/events/facebook-attendees/${facebookAttendeeId}/attendance`, { attended });
   }
 
   markGuestAttendance(guestLinkId: number, attended: boolean): Observable<void> {

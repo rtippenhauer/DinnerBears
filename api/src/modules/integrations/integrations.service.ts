@@ -8,16 +8,10 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
 import { ApiTokenEntity } from '../../database/entities/api-token.entity';
-import { AppConfigEntity } from '../../database/entities/app-config.entity';
 import { CityEntity } from '../../database/entities/city.entity';
 import { EmailStatus, UserEntity, UserRole, UserStatus } from '../../database/entities/user.entity';
 import { AuditService } from '../audit/audit.service';
 import { apiTokenExpiry, generateApiToken, hashApiToken } from './api-token.util';
-
-// Server-only app_config row (deliberately not a SITE_SETTING_KEY, so it isn't
-// publicly readable or part of the settings form): the member whose Going RSVP
-// holds unmatched Facebook attendees as +1 guest names.
-export const FACEBOOK_SYNC_HOST_KEY = 'facebook_sync_host_user_id';
 
 export interface IssuedToken {
   token: string;
@@ -49,8 +43,6 @@ export class IntegrationsService {
     private readonly userRepo: Repository<UserEntity>,
     @InjectRepository(CityEntity)
     private readonly cityRepo: Repository<CityEntity>,
-    @InjectRepository(AppConfigEntity)
-    private readonly configRepo: Repository<AppConfigEntity>,
     private readonly auditService: AuditService,
   ) {}
 
@@ -127,14 +119,8 @@ export class IntegrationsService {
       metadata: { name: fullName, role },
     });
 
-    // Only a Muse account can use a token. The first one on an instance also
-    // defaults the unmatched-guest host to whoever set it up, which is exactly
-    // the "my +1s" arrangement.
-    let issued: IssuedToken | null = null;
-    if (role === UserRole.MUSE) {
-      if (!(await this.getSyncHostId())) await this.setSyncHost(actorId, actorId);
-      issued = await this.issueToken(user.id, actorId);
-    }
+    // Only a Muse account uses a token.
+    const issued = role === UserRole.MUSE ? await this.issueToken(user.id, actorId) : null;
     const summary = (await this.list()).find((s) => s.userId === user.id)!;
     return { ...summary, issued };
   }
@@ -173,41 +159,6 @@ export class IntegrationsService {
   ): Promise<{ userId: number; name: string; tokenExpiresAt: Date | null }> {
     const token = currentTokenId ? await this.tokenRepo.findOne({ where: { id: currentTokenId } }) : null;
     return { userId: user.id, name: user.fullName, tokenExpiresAt: token?.expiresAt ?? null };
-  }
-
-  async getSyncHostId(): Promise<number | null> {
-    const row = await this.configRepo.findOne({ where: { configKey: FACEBOOK_SYNC_HOST_KEY } });
-    const id = row ? parseInt(row.configValue, 10) : NaN;
-    return Number.isFinite(id) && id > 0 ? id : null;
-  }
-
-  async getSyncHost(): Promise<{ id: number; fullName: string } | null> {
-    const id = await this.getSyncHostId();
-    if (!id) return null;
-    const user = await this.userRepo.findOne({ where: { id } });
-    return user ? { id: user.id, fullName: user.fullName } : null;
-  }
-
-  async setSyncHost(userId: number, actorId: number): Promise<{ id: number; fullName: string }> {
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user || user.status !== UserStatus.ACTIVE) throw new NotFoundException('Member not found');
-    if (user.isAutomationAccount) {
-      throw new BadRequestException('The sync host must be a real member');
-    }
-
-    let row = await this.configRepo.findOne({ where: { configKey: FACEBOOK_SYNC_HOST_KEY } });
-    if (!row) row = this.configRepo.create({ configKey: FACEBOOK_SYNC_HOST_KEY, configValue: '' });
-    row.configValue = String(user.id);
-    row.updatedBy = actorId;
-    await this.configRepo.save(row);
-
-    await this.auditService.log({
-      userId: actorId,
-      action: 'integration.sync_host_set',
-      entityType: 'user',
-      entityId: user.id,
-    });
-    return { id: user.id, fullName: user.fullName };
   }
 
   private async getIntegrationUser(userId: number): Promise<UserEntity> {

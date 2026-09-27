@@ -8,11 +8,17 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { randomBytes, randomUUID } from 'crypto';
-import { IsNull, Not, Repository } from 'typeorm';
+import { In, IsNull, Not, Repository } from 'typeorm';
 import { EventEntity, EventStatus } from '../../database/entities/event.entity';
 import { UserEntity, UserRole, UserStatus } from '../../database/entities/user.entity';
 import { EventGuestLinkEntity } from '../../database/entities/event-guest-link.entity';
 import { EventRsvpEntity, RsvpSource, RsvpStatus } from '../../database/entities/event-rsvp.entity';
+import {
+  FacebookEventAttendeeEntity,
+  facebookPlusOnes,
+  isFacebookGoing,
+} from '../../database/entities/facebook-event-attendee.entity';
+import { FacebookAccountStatus } from '../../database/entities/facebook-account.entity';
 import { InviteEntity, InviteFlavor, InviteType } from '../../database/entities/invite.entity';
 import { LocationEntity } from '../../database/entities/location.entity';
 import { CreateEventDto } from './dto/create-event.dto';
@@ -47,6 +53,16 @@ export function isHiddenRole(role: UserRole): boolean {
   return role === UserRole.AUTOMATION || role === UserRole.MUSE;
 }
 
+// A Facebook-only attendee (Phase 39): someone Going on a synced Facebook
+// event whose account isn't linked to a member.
+export interface FacebookOnlyAttendee {
+  id: number;
+  facebookAccountId: number;
+  name: string;
+  plusOnes: number;
+  attended: boolean | null;
+}
+
 @Injectable()
 export class EventsService {
   private readonly logger = new Logger(EventsService.name);
@@ -64,6 +80,8 @@ export class EventsService {
     private readonly inviteRepo: Repository<InviteEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
+    @InjectRepository(FacebookEventAttendeeEntity)
+    private readonly facebookAttendeeRepo: Repository<FacebookEventAttendeeEntity>,
     private readonly emailService: EmailService,
     private readonly calendarService: CalendarService,
     private readonly pointsService: PointsService,
@@ -197,6 +215,14 @@ export class EventsService {
       }
     }
 
+    // Facebook-only attendees (Phase 39) count as Going, with their +1s.
+    const facebookOnly = await this.getFacebookOnlyAttendees(ids);
+    for (const [eid, people] of facebookOnly) {
+      const seats = people.reduce((sum, p) => sum + 1 + p.plusOnes, 0);
+      goingCountMap.set(eid, (goingCountMap.get(eid) ?? 0) + seats);
+      totalMap.set(eid, (totalMap.get(eid) ?? 0) + seats);
+    }
+
     // Current user's RSVP status per event
     let myRsvpMap = new Map<number, string>();
     if (filters.userId) {
@@ -251,7 +277,10 @@ export class EventsService {
     });
   }
 
-  async findOne(id: number, callerRole?: UserRole, callerId?: number): Promise<EventEntity & { publicRsvps: Pick<EventGuestLinkEntity, 'id' | 'recipientName' | 'cancelledAt'>[] }> {
+  async findOne(id: number, callerRole?: UserRole, callerId?: number): Promise<EventEntity & {
+    publicRsvps: Pick<EventGuestLinkEntity, 'id' | 'recipientName' | 'cancelledAt'>[];
+    facebookAttendees: { id: number; name: string | null; plusOnes: number }[];
+  }> {
     const event = await this.eventRepo.findOne({
       where: { id },
       relations: [
@@ -328,7 +357,15 @@ export class EventsService {
       order: { createdAt: 'ASC' },
     });
 
-    return Object.assign(event, { publicRsvps });
+    // Facebook-only attendees (Phase 39). Names follow the same rule as member
+    // RSVPs: validated members see who's going, others only the count.
+    const facebookAttendees = ((await this.getFacebookOnlyAttendees([id])).get(id) ?? []).map((a) => ({
+      id: a.id,
+      name: isValidatedMember ? a.name : null,
+      plusOnes: a.plusOnes,
+    }));
+
+    return Object.assign(event, { publicRsvps, facebookAttendees });
   }
 
   async create(dto: CreateEventDto, userId: number): Promise<EventEntity> {
@@ -826,6 +863,8 @@ export class EventsService {
       updatedAt: Date;
     }[];
     publicGuests: { guestLinkId: number; name: string | null; attended: boolean | null; createdAt: Date }[];
+    facebookOnly: { facebookAccountId: number; name: string; plusOnes: number; attended: boolean | null }[];
+    totalGoing: number;
   }> {
     const event = await this.eventRepo.findOne({ where: { id: eventId } });
     if (!event) throw new NotFoundException(`Event ${eventId} not found`);
@@ -858,6 +897,13 @@ export class EventsService {
         attended: l.attended === null ? null : !!l.attended,
         createdAt: l.createdAt,
       })),
+      facebookOnly: ((await this.getFacebookOnlyAttendees([eventId])).get(eventId) ?? []).map((a) => ({
+        facebookAccountId: a.facebookAccountId,
+        name: a.name,
+        plusOnes: a.plusOnes,
+        attended: a.attended,
+      })),
+      totalGoing: await this.getHeadcount(eventId),
     };
   }
 
@@ -1542,9 +1588,10 @@ export class EventsService {
   }
 
   async getAttendance(eventId: number): Promise<{
-    type: 'member' | 'guest';
+    type: 'member' | 'guest' | 'facebook';
     userId?: number;
     guestLinkId?: number;
+    facebookAttendeeId?: number;
     memberName: string;
     recipientEmail?: string | null;
     attended: boolean | null;
@@ -1596,7 +1643,66 @@ export class EventsService {
         linkUsed: !!l.usedAt,
       }));
 
-    return [...members, ...guests];
+    const facebook = ((await this.getFacebookOnlyAttendees([eventId])).get(eventId) ?? []).map((a) => ({
+      type: 'facebook' as const,
+      facebookAttendeeId: a.id,
+      memberName: a.plusOnes > 0 ? `${a.name} (+${a.plusOnes})` : a.name,
+      attended: a.attended,
+      isWalkin: false,
+      fromOtherCity: false,
+      linkUsed: false,
+    }));
+
+    return [...members, ...guests, ...facebook];
+  }
+
+  // Attendance for a Facebook-only attendee (Phase 39). No points yet — they
+  // have no account; if the Facebook account is later linked to a member, an
+  // Attended mark here carries over with points.
+  async markFacebookAttendance(facebookAttendeeId: number, attended: boolean): Promise<void> {
+    const row = await this.facebookAttendeeRepo.findOne({ where: { id: facebookAttendeeId } });
+    if (!row) throw new NotFoundException('Facebook attendee not found');
+    await this.facebookAttendeeRepo.update(facebookAttendeeId, { attended });
+  }
+
+  // Everyone Going on at least one synced Facebook event whose account isn't
+  // linked to a member, per event.
+  async getFacebookOnlyAttendees(eventIds: number[]): Promise<Map<number, FacebookOnlyAttendee[]>> {
+    const map = new Map<number, FacebookOnlyAttendee[]>();
+    if (eventIds.length === 0) return map;
+    const rows = await this.facebookAttendeeRepo.find({
+      where: { eventId: In(eventIds) },
+      relations: ['facebookAccount'],
+      order: { id: 'ASC' },
+    });
+    for (const row of rows) {
+      const account = row.facebookAccount;
+      if (!account || account.status === FacebookAccountStatus.LINKED || !isFacebookGoing(row)) continue;
+      map.set(row.eventId, [
+        ...(map.get(row.eventId) ?? []),
+        {
+          id: row.id,
+          facebookAccountId: account.id,
+          name: account.displayName,
+          plusOnes: facebookPlusOnes(row),
+          attended: row.attended == null ? null : !!row.attended,
+        },
+      ]);
+    }
+    return map;
+  }
+
+  // The number handed back to Muse for each Facebook event's description:
+  // members Going plus their +1s, public guest signups, and Facebook-only
+  // attendees plus their +1s.
+  async getHeadcount(eventId: number): Promise<number> {
+    const goingRsvps = await this.rsvpRepo.find({ where: { eventId, status: RsvpStatus.GOING } });
+    let count = goingRsvps.reduce((sum, r) => sum + 1 + (Number(r.additionalGuests) || 0), 0);
+    count += await this.guestLinkRepo.count({ where: { eventId, source: 'public', cancelledAt: IsNull() } });
+    for (const p of (await this.getFacebookOnlyAttendees([eventId])).get(eventId) ?? []) {
+      count += 1 + p.plusOnes;
+    }
+    return count;
   }
 
   async markAttendance(eventId: number, attendances: { userId: number; attended: boolean; fromOtherCity?: boolean }[]): Promise<void> {
@@ -2069,6 +2175,9 @@ export class EventsService {
       where: { eventId: event.id, source: 'public', cancelledAt: IsNull() },
     });
     goingCount += publicCount;
+    for (const p of (await this.getFacebookOnlyAttendees([event.id])).get(event.id) ?? []) {
+      goingCount += 1 + p.plusOnes;
+    }
     const suggestedCount = goingCount + 3;
 
     const [ey, em, ed] = event.eventDate.split('-').map(Number);
