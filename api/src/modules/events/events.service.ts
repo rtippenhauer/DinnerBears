@@ -15,7 +15,8 @@ import { EventGuestLinkEntity } from '../../database/entities/event-guest-link.e
 import { EventRsvpEntity, RsvpSource, RsvpStatus } from '../../database/entities/event-rsvp.entity';
 import {
   FacebookEventAttendeeEntity,
-  facebookPlusOnes,
+  facebookGuestCount,
+  facebookGuests,
   isFacebookGoing,
 } from '../../database/entities/facebook-event-attendee.entity';
 import { FacebookAccountStatus } from '../../database/entities/facebook-account.entity';
@@ -60,6 +61,8 @@ export interface FacebookOnlyAttendee {
   facebookAccountId: number;
   name: string;
   plusOnes: number;
+  // Named +1s from the Facebook comments; `plusOnes` also counts unnamed ones.
+  plusOneNames: string[];
   attended: boolean | null;
 }
 
@@ -186,13 +189,14 @@ export class EventsService {
       .select('r.eventId', 'eventId')
       .addSelect('r.status', 'status')
       .addSelect('r.additionalGuests', 'additionalGuests')
+      .addSelect('r.facebookGuestCount', 'facebookGuestCount')
       .addSelect('u.fullName', 'fullName')
       .addSelect('u.profilePhotoPath', 'profilePhotoPath')
       .where('r.eventId IN (:...ids)', { ids })
       .andWhere('r.status IN (:...statuses)', { statuses: [RsvpStatus.GOING, RsvpStatus.MAYBE] })
       .orderBy('r.status', 'ASC')   // 'going' < 'maybe' — going first
       .addOrderBy('r.createdAt', 'ASC')
-      .getRawMany<{ eventId: string; status: string; additionalGuests: string; fullName: string; profilePhotoPath: string | null }>();
+      .getRawMany<{ eventId: string; status: string; additionalGuests: string; facebookGuestCount: string; fullName: string; profilePhotoPath: string | null }>();
 
     const goingCountMap = new Map<number, number>();
     const totalMap = new Map<number, number>();
@@ -200,7 +204,7 @@ export class EventsService {
 
     for (const row of rsvpRows) {
       const eid = Number(row.eventId);
-      const guests = Number(row.additionalGuests) || 0;
+      const guests = (Number(row.additionalGuests) || 0) + (Number(row.facebookGuestCount) || 0);
       const seats = row.status === RsvpStatus.GOING ? 1 + guests : 1;
 
       if (row.status === RsvpStatus.GOING) {
@@ -279,7 +283,7 @@ export class EventsService {
 
   async findOne(id: number, callerRole?: UserRole, callerId?: number): Promise<EventEntity & {
     publicRsvps: Pick<EventGuestLinkEntity, 'id' | 'recipientName' | 'cancelledAt'>[];
-    facebookAttendees: { id: number; name: string | null; plusOnes: number }[];
+    facebookAttendees: { id: number; name: string | null; plusOnes: number; plusOneNames: string[] }[];
   }> {
     const event = await this.eventRepo.findOne({
       where: { id },
@@ -363,6 +367,7 @@ export class EventsService {
       id: a.id,
       name: isValidatedMember ? a.name : null,
       plusOnes: a.plusOnes,
+      plusOneNames: isValidatedMember ? a.plusOneNames : [],
     }));
 
     return Object.assign(event, { publicRsvps, facebookAttendees });
@@ -857,13 +862,16 @@ export class EventsService {
       status: RsvpStatus;
       additionalGuests: number;
       guestNames: string[];
+      // Their +1s from the Facebook comments, beside the website guests
+      // above (null = unnamed).
+      facebookGuests: (string | null)[];
       source: RsvpSource;
       attended: boolean | null;
       isWalkin: boolean;
       updatedAt: Date;
     }[];
     publicGuests: { guestLinkId: number; name: string | null; attended: boolean | null; createdAt: Date }[];
-    facebookOnly: { facebookAccountId: number; name: string; plusOnes: number; attended: boolean | null }[];
+    facebookOnly: { facebookAccountId: number; name: string; plusOnes: number; plusOneNames: string[]; attended: boolean | null }[];
     totalGoing: number;
   }> {
     const event = await this.eventRepo.findOne({ where: { id: eventId } });
@@ -885,6 +893,7 @@ export class EventsService {
         status: r.status,
         additionalGuests: Number(r.additionalGuests) || 0,
         guestNames: r.guestNames ?? [],
+        facebookGuests: r.facebookGuestNames ?? [],
         source: r.source,
         // tinyint columns come back as 0/1 — normalize before they leave the API
         attended: r.attended === null ? null : !!r.attended,
@@ -901,6 +910,7 @@ export class EventsService {
         facebookAccountId: a.facebookAccountId,
         name: a.name,
         plusOnes: a.plusOnes,
+        plusOneNames: a.plusOneNames,
         attended: a.attended,
       })),
       totalGoing: await this.getHeadcount(eventId),
@@ -1646,7 +1656,9 @@ export class EventsService {
     const facebook = ((await this.getFacebookOnlyAttendees([eventId])).get(eventId) ?? []).map((a) => ({
       type: 'facebook' as const,
       facebookAttendeeId: a.id,
-      memberName: a.plusOnes > 0 ? `${a.name} (+${a.plusOnes})` : a.name,
+      memberName: a.plusOnes > 0
+        ? `${a.name} (+${a.plusOnes}${a.plusOneNames.length ? `: ${a.plusOneNames.join(', ')}` : ''})`
+        : a.name,
       attended: a.attended,
       isWalkin: false,
       fromOtherCity: false,
@@ -1684,7 +1696,8 @@ export class EventsService {
           id: row.id,
           facebookAccountId: account.id,
           name: account.displayName,
-          plusOnes: facebookPlusOnes(row),
+          plusOnes: facebookGuestCount(facebookGuests(row)),
+          plusOneNames: facebookGuests(row).names,
           attended: row.attended == null ? null : !!row.attended,
         },
       ]);
@@ -1697,7 +1710,10 @@ export class EventsService {
   // attendees plus their +1s.
   async getHeadcount(eventId: number): Promise<number> {
     const goingRsvps = await this.rsvpRepo.find({ where: { eventId, status: RsvpStatus.GOING } });
-    let count = goingRsvps.reduce((sum, r) => sum + 1 + (Number(r.additionalGuests) || 0), 0);
+    let count = goingRsvps.reduce(
+      (sum, r) => sum + 1 + (Number(r.additionalGuests) || 0) + (Number(r.facebookGuestCount) || 0),
+      0,
+    );
     count += await this.guestLinkRepo.count({ where: { eventId, source: 'public', cancelledAt: IsNull() } });
     for (const p of (await this.getFacebookOnlyAttendees([eventId])).get(eventId) ?? []) {
       count += 1 + p.plusOnes;
@@ -2170,7 +2186,7 @@ export class EventsService {
     const goingRsvps = await this.rsvpRepo.find({
       where: { eventId: event.id, status: RsvpStatus.GOING },
     });
-    let goingCount = goingRsvps.reduce((sum, r) => sum + 1 + r.additionalGuests, 0);
+    let goingCount = goingRsvps.reduce((sum, r) => sum + 1 + r.additionalGuests + (Number(r.facebookGuestCount) || 0), 0);
     const publicCount = await this.guestLinkRepo.count({
       where: { eventId: event.id, source: 'public', cancelledAt: IsNull() },
     });

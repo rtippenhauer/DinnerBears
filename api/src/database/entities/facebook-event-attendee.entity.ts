@@ -13,7 +13,8 @@ import { FacebookAccountEntity } from './facebook-account.entity';
 // A Facebook account's Going status for one DinnerBears event (Phase 39),
 // merged across every Facebook event linked to it. `sources` maps each
 // Facebook event ID whose Going list currently includes this person to the
-// +1s read there, so each list is tracked independently: a sync replaces only
+// +1s read there (names, plus a count of unnamed ones), so each list is
+// tracked independently: a sync replaces only
 // its own entry, and the person stops counting once no list has them.
 //
 // While the account isn't linked to a member, this row *is* the attendee — a
@@ -40,7 +41,7 @@ export class FacebookEventAttendeeEntity {
   facebookAccount: FacebookAccountEntity;
 
   @Column({ type: 'json' })
-  sources: Record<string, number>;
+  sources: Record<string, FacebookGuests | number>;
 
   // Marked from the attendance dialog. Carried over to the member (as an
   // attended RSVP, with points) if the account is later linked.
@@ -56,8 +57,40 @@ export function isFacebookGoing(row: Pick<FacebookEventAttendeeEntity, 'sources'
   return Object.keys(row.sources ?? {}).length > 0;
 }
 
-// +1s for the dinner: the most any one list shows (the same person in two
-// groups shouldn't double their guests).
-export function facebookPlusOnes(row: Pick<FacebookEventAttendeeEntity, 'sources'>): number {
-  return Math.max(0, ...Object.values(row.sources ?? {}).map((n) => Number(n) || 0));
+// +1s read from one Facebook event's comments: the ones given by name, plus a
+// count of ones with no name ("+1").
+export interface FacebookGuests {
+  names: string[];
+  unnamed: number;
+}
+
+// Rows written before +1 names existed stored a bare number.
+function toGuests(value: FacebookGuests | number | null | undefined): FacebookGuests {
+  if (typeof value === 'number') return { names: [], unnamed: Math.max(0, value) };
+  return { names: value?.names ?? [], unnamed: Math.max(0, Number(value?.unnamed) || 0) };
+}
+
+// Combines +1s from several lists (the same person in two groups, or one
+// member's two Facebook accounts): every distinct name once, ignoring case,
+// and the largest unnamed count — so nobody's guests are doubled.
+export function mergeFacebookGuests(lists: (FacebookGuests | number)[]): FacebookGuests {
+  const names = new Map<string, string>();
+  let unnamed = 0;
+  for (const raw of lists) {
+    const g = toGuests(raw);
+    for (const n of g.names) {
+      const key = n.trim().toLowerCase();
+      if (key && !names.has(key)) names.set(key, n.trim());
+    }
+    unnamed = Math.max(unnamed, g.unnamed);
+  }
+  return { names: [...names.values()], unnamed };
+}
+
+export function facebookGuests(row: Pick<FacebookEventAttendeeEntity, 'sources'>): FacebookGuests {
+  return mergeFacebookGuests(Object.values(row.sources ?? {}));
+}
+
+export function facebookGuestCount(g: FacebookGuests): number {
+  return g.names.length + g.unnamed;
 }

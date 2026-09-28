@@ -37,7 +37,19 @@ export class FacebookGuestDto {
   @Matches(/^\d{1,32}$/, { message: 'facebook_user_id must be the numeric Facebook profile ID' })
   facebook_user_id: string;
 
-  // +1s read from the Facebook comments.
+  // Names of the +1s read from the Facebook comments. These are only ever
+  // matched to a member's website guests by exact name — a Facebook +1 is
+  // never assumed to be one of the guests already on the website.
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MinLength(1, { each: true })
+  @MaxLength(200, { each: true })
+  plus_one_names?: string[];
+
+  // Total +1s, for comments like "+1" with no name. The unnamed count is
+  // whatever this adds beyond plus_one_names.
   @IsOptional()
   @IsInt()
   @Min(0)

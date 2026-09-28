@@ -314,6 +314,7 @@ Response `200`:
       "status": "going",
       "additionalGuests": 1,
       "guestNames": [],
+      "facebookGuests": ["Carol Smith", null],
       "source": "facebook_sync",
       "attended": null,
       "isWalkin": false,
@@ -324,7 +325,7 @@ Response `200`:
     { "guestLinkId": 3, "name": "Pat Smith", "attended": null, "createdAt": "2026-09-27T05:00:00.000Z" }
   ],
   "facebookOnly": [
-    { "facebookAccountId": 12, "name": "Don Weaver", "plusOnes": 0, "attended": null }
+    { "facebookAccountId": 12, "name": "Don Weaver", "plusOnes": 1, "plusOneNames": ["Pat Lee"], "attended": null }
   ],
   "totalGoing": 4
 }
@@ -333,8 +334,12 @@ Response `200`:
 - `status` is `going`, `maybe` or `not_going`.
 - `source` shows who created a member's RSVP: `member` (the member themselves),
   `admin` (an admin's "Add to Going"), or `facebook_sync`.
+- `guestNames` are the guests the member added on the website.
+  `facebookGuests` are their +1s from the Facebook comments, kept separately
+  (`null` means an unnamed +1).
 - `facebookOnly` lists people Going on Facebook whose Facebook account isn't
-  linked to a member yet.
+  linked to a member yet. `plusOnes` counts all their +1s; `plusOneNames` are
+  the named ones.
 - `totalGoing` is the merged headcount (defined under the sync below).
 
 ---
@@ -365,7 +370,8 @@ Request:
 | `events[].guests[].name` | string | yes | Name as shown on Facebook. |
 | `events[].guests[].profile_url` | string | yes | The person's **current** vanity URL. |
 | `events[].guests[].facebook_user_id` | string | yes | The numeric Facebook profile ID. This is the permanent key; a changed vanity URL just updates. |
-| `events[].guests[].plus_ones` | number | no | 0–20. The +1s read from the Facebook comments. |
+| `events[].guests[].plus_one_names` | string[] | no | Names of the +1s from the Facebook comments, up to 20. |
+| `events[].guests[].plus_ones` | number | no | 0–20. Total +1s, for comments like "+1" with no name. Anything beyond `plus_one_names` counts as unnamed. |
 | `events[].facebook_event_url`, `events[].title` | string | no | Informational; ignored. |
 | `extracted_at` | ISO date | no | When the lists were read. A Facebook event whose last applied list is newer is skipped. |
 | `note` | string | no | Informational; ignored. |
@@ -380,7 +386,7 @@ Request:
       "going_count": 3,
       "guests": [
         { "name": "Rob Tippenhauer", "profile_url": "https://www.facebook.com/rob.tippenhauer", "facebook_user_id": "100000000000001" },
-        { "name": "Don Weaver", "profile_url": "https://www.facebook.com/don.weaver.718", "facebook_user_id": "100000000000002", "plus_ones": 1 }
+        { "name": "Don Weaver", "profile_url": "https://www.facebook.com/don.weaver.718", "facebook_user_id": "100000000000002", "plus_one_names": ["Pat Lee"], "plus_ones": 2 }
       ]
     },
     {
@@ -404,19 +410,20 @@ server never links anyone by name on its own, though it suggests likely matches.
 
 | Situation | Result |
 |---|---|
-| Account linked to a member who isn't Going on the website | Marked Going, with their +1s. They get the usual confirmation email, noting the Facebook sync added them. |
-| Linked member already Going | Their +1s are raised if Facebook shows more. They are **never lowered**. |
+| Account linked to a member who isn't Going on the website | Marked Going. They get the usual confirmation email, noting the Facebook sync added them. |
+| Linked member's +1s | Their Facebook +1s are kept **beside** the guests they added on the website, never merged into them. A Facebook +1 is only skipped if it has the same name as one of their named website guests. Facebook +1s follow the comments on every sync, up or down; website guests are never changed. |
 | Linked member with two Facebook accounts, or on both groups' lists | Counted once. |
-| Linked member no longer on **any** of the dinner's Facebook lists | Removed, but only if the sync made their RSVP. |
+| Linked member no longer on **any** of the dinner's Facebook lists | Removed, but only if the sync made their RSVP. A website RSVP stays and just loses its Facebook +1s. |
 | RSVP made on the website (by the member or an admin) | **Never removed** by the sync. |
-| Account not linked to a member | A **Facebook-only attendee**: counted, with their +1s, and shown on the event page and in the attendance dialog. Counted once however many lists they're on. |
+| Account not linked to a member | A **Facebook-only attendee**: counted, with their +1s, and shown on the event page (with their +1 names, like a member's) and in the attendance dialog. Counted once however many lists they're on. |
 | Account linked to a banned or deleted member | Not added and not counted; listed in `warnings`. |
 
 Each Facebook event's list is tracked separately. Someone who drops off the
 Cincinnati list but is still on the Gem City Bears list is still Going.
 
-**Headcount (`totalGoing`)** is members Going plus their +1s, plus Facebook-only
-attendees plus their +1s, plus public guest signups. Write it into that
+**Headcount (`totalGoing`)** is members Going plus their website guests and
+Facebook +1s, plus Facebook-only attendees plus their +1s, plus public guest
+signups. Write it into that
 Facebook event's description.
 
 Response `200`:
@@ -428,8 +435,8 @@ Response `200`:
     { "facebookEventId": "1617936020344888", "dinnerbearsEventId": 21, "group": "Cincinnati Tuesday Night Bear Dinners", "status": "ok", "accepted": 2, "complete": false, "totalGoing": 5 },
     { "facebookEventId": "1072447435694919", "dinnerbearsEventId": 21, "group": "Gem City Bears", "status": "ok", "accepted": 1, "complete": true, "totalGoing": 5 }
   ],
-  "added":   [{ "eventId": 21, "userId": 5, "name": "Jane Doe", "plusOnes": 1 }],
-  "raised":  [{ "eventId": 21, "userId": 8, "name": "Bob Brown", "plusOnes": 3, "from": 2 }],
+  "added":   [{ "eventId": 21, "userId": 5, "name": "Jane Doe", "facebookGuests": ["Carol Smith"] }],
+  "guestsChanged": [{ "eventId": 21, "userId": 8, "name": "Bob Brown", "facebookGuests": ["Dan Jones", null], "from": ["Dan Jones"] }],
   "removed": [{ "eventId": 21, "userId": 11, "name": "Carl Carter" }],
   "unmatched": [
     {
@@ -447,6 +454,8 @@ Response `200`:
   applied) or `error`. On `error`, `error` says why, for example "already
   linked to event 27", or the dinner is a draft or already past. One failed
   Facebook event doesn't stop the others.
+- `guestsChanged` lists members whose Facebook +1s changed (`null` = an
+  unnamed +1).
 - `unmatched` lists Facebook people not yet linked to a member (and not marked
   "not a member"). `suggestions` holds members with the same name, for Rob to
   confirm on the Facebook Accounts page.

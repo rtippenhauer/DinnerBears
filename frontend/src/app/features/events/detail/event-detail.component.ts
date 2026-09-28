@@ -693,6 +693,17 @@ import { formatEventTime, initials as sharedInitials } from '../../../shared/uti
                               }
                             </span>
                           }
+                          @if (r.status === 'going' && (r.facebookGuestCount ?? 0) > 0) {
+                            <span class="attendee-guests attendee-guests-facebook">
+                              +{{ r.facebookGuestCount }}
+                              @if (namedGuests(facebookNames(r.facebookGuestNames))) {
+                                <span class="guest-names-inline"
+                                  >({{ namedGuests(facebookNames(r.facebookGuestNames)) }})</span
+                                >
+                              }
+                              <span class="attendee-facebook-badge">Facebook</span>
+                            </span>
+                          }
                           @if (r.status === 'going' && isResidenceEvent() && r.bringingItem) {
                             <span class="attendee-bringing">🍴 {{ r.bringingItem }}</span>
                           }
@@ -721,7 +732,12 @@ import { formatEventTime, initials as sharedInitials } from '../../../shared/uti
                             <span class="attendee-facebook-badge">Facebook</span>
                           </div>
                           @if (f.plusOnes > 0) {
-                            <span class="attendee-guests">+{{ f.plusOnes }}</span>
+                            <span class="attendee-guests">
+                              +{{ f.plusOnes }}
+                              @if (namedGuests(f.plusOneNames ?? null)) {
+                                <span class="guest-names-inline">({{ namedGuests(f.plusOneNames ?? null) }})</span>
+                              }
+                            </span>
                           }
                         </div>
                       </li>
@@ -1844,6 +1860,9 @@ import { formatEventTime, initials as sharedInitials } from '../../../shared/uti
         color: #bbb;
         font-style: italic;
       }
+      .attendee-guests-facebook .attendee-facebook-badge {
+        margin-left: 4px;
+      }
       .attendee-facebook-badge {
         display: inline-block;
         font-size: 0.68rem;
@@ -2547,7 +2566,7 @@ export class EventDetailComponent implements OnInit, OnDestroy, HasUnsavedChange
       .filter((r) => r.status === 'going')
       .reduce((sum, r) => {
         const cancelled = (r.guestLinks ?? []).filter((l) => l.cancelledAt).length;
-        return sum + 1 + r.additionalGuests - cancelled;
+        return sum + 1 + r.additionalGuests + (r.facebookGuestCount ?? 0) - cancelled;
       }, 0);
     const publicSeats = (e.publicRsvps ?? []).length;
     const facebookSeats = (e.facebookAttendees ?? []).reduce((sum, f) => sum + 1 + f.plusOnes, 0);
@@ -2720,6 +2739,11 @@ export class EventDetailComponent implements OnInit, OnDestroy, HasUnsavedChange
 
   initials(name: string): string {
     return sharedInitials(name);
+  }
+
+  // Facebook +1 names, dropping the unnamed (null) entries.
+  facebookNames(names: (string | null)[] | null | undefined): string[] {
+    return (names ?? []).filter((n): n is string => !!n);
   }
 
   namedGuests(names: string[] | null): string {

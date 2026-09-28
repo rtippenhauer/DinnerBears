@@ -45,6 +45,10 @@ export interface Rsvp {
   status: RsvpStatus;
   additionalGuests: number;
   guestNames: string[] | null;
+  // Phase 39: +1s from the Facebook comments, beside the website guests
+  // above (null = unnamed). Counted on top of additionalGuests.
+  facebookGuestNames?: (string | null)[] | null;
+  facebookGuestCount?: number;
   bringingItem: string | null;
   guestLinks: GuestLink[] | undefined;
   createdAt: string;
@@ -54,6 +58,7 @@ interface FacebookAttendee {
   id: number;
   name: string | null;
   plusOnes: number;
+  plusOneNames?: string[];
 }
 
 interface PublicRsvp {

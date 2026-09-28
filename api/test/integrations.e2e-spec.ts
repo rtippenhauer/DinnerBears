@@ -382,7 +382,14 @@ describe('Integrations + Facebook RSVP sync (e2e)', () => {
       await linkAccount('1003', alice.id);
       const res = await sync(token, [fbEvent(event.id, CINCY, [{ ...ALICE_FB, plus_ones: 1 }]), fbEvent(event.id, GEM, [aliceSecond])]);
 
-      expect(await rsvpOf(event.id, alice.id)).toMatchObject({ status: RsvpStatus.GOING, additionalGuests: 2, source: RsvpSource.FACEBOOK_SYNC });
+      // Her Facebook +1s sit beside her website guests (none), merged across
+      // both accounts: the larger unnamed count, not the sum.
+      expect(await rsvpOf(event.id, alice.id)).toMatchObject({
+        status: RsvpStatus.GOING,
+        additionalGuests: 0,
+        facebookGuestCount: 2,
+        source: RsvpSource.FACEBOOK_SYNC,
+      });
       expect(res.body.unmatched).toEqual([]);
       expect(res.body.events[0].totalGoing).toBe(3); // Alice + her 2 guests, no Facebook-only duplicates
       const detail = await request(server).get(`/api/v1/events/${event.id}`).set('Cookie', aliceCookie).expect(200);
@@ -416,21 +423,51 @@ describe('Integrations + Facebook RSVP sync (e2e)', () => {
       expect(res.body.events[0].totalGoing).toBe(0);
     });
 
-    it('never removes an RSVP made on the website, and never lowers +1s', async () => {
+    it('keeps a member\'s Facebook +1s beside their website guests — never merging into them', async () => {
       const { token } = await createIntegration();
       const event = await createEvent();
-      await request(server).post(`/api/v1/events/${event.id}/rsvp`).set('Cookie', bobCookie).send({ status: 'going', additionalGuests: 2 }).expect(201);
-      await sync(token, [fbEvent(event.id, CINCY, [{ ...BOB_FB, plus_ones: 1 }])]);
+      await request(server)
+        .post(`/api/v1/events/${event.id}/rsvp`)
+        .set('Cookie', bobCookie)
+        .send({ status: 'going', additionalGuests: 2, guestNames: ['Carol Smith'] })
+        .expect(201);
+      await sync(token, [fbEvent(event.id, CINCY, [BOB_FB])]);
       await linkAccount('1002', bob.id);
 
-      await sync(token, [fbEvent(event.id, CINCY, [{ ...BOB_FB, plus_ones: 1 }])]);
-      expect(await rsvpOf(event.id, bob.id)).toMatchObject({ additionalGuests: 2, source: RsvpSource.MEMBER });
+      // Carol is already his website guest; Dan and one unnamed +1 are extra.
+      const res = await sync(token, [fbEvent(event.id, CINCY, [{ ...BOB_FB, plus_one_names: ['carol smith', 'Dan Jones'], plus_ones: 3 }])]);
+      expect(await rsvpOf(event.id, bob.id)).toMatchObject({
+        additionalGuests: 2,
+        guestNames: ['Carol Smith'],
+        facebookGuestNames: ['Dan Jones', null],
+        facebookGuestCount: 2,
+        source: RsvpSource.MEMBER,
+      });
+      expect(res.body.events[0].totalGoing).toBe(5); // Bob + 2 website guests + 2 Facebook +1s
 
-      const raised = await sync(token, [fbEvent(event.id, CINCY, [{ ...BOB_FB, plus_ones: 3 }])]);
-      expect(raised.body.raised).toEqual([expect.objectContaining({ userId: bob.id, from: 2, plusOnes: 3 })]);
+      // Facebook +1s follow the comments down as well as up; website guests don't move.
+      await sync(token, [fbEvent(event.id, CINCY, [BOB_FB])]);
+      expect(await rsvpOf(event.id, bob.id)).toMatchObject({ additionalGuests: 2, facebookGuestNames: null, facebookGuestCount: 0 });
 
-      await sync(token, [fbEvent(event.id, CINCY, [])]);
-      expect(await rsvpOf(event.id, bob.id)).toMatchObject({ status: RsvpStatus.GOING, additionalGuests: 3 });
+      // Off Facebook entirely: the website RSVP stays, with its own guests.
+      await sync(token, [fbEvent(event.id, CINCY, [{ ...BOB_FB, plus_one_names: ['Dan Jones'] }])]);
+      const gone = await sync(token, [fbEvent(event.id, CINCY, [])]);
+      expect(gone.body.removed).toEqual([]);
+      expect(await rsvpOf(event.id, bob.id)).toMatchObject({ status: RsvpStatus.GOING, additionalGuests: 2, facebookGuestCount: 0 });
+    });
+
+    it('shows a Facebook-only person\'s named +1s like a member\'s', async () => {
+      const { token } = await createIntegration();
+      const event = await createEvent();
+      const res = await sync(token, [fbEvent(event.id, CINCY, [{ ...STRANGER, plus_one_names: ['Pat Lee'], plus_ones: 2 }])]);
+      expect(res.body.events[0].totalGoing).toBe(3);
+
+      const detail = await request(server).get(`/api/v1/events/${event.id}`).set('Cookie', aliceCookie).expect(200);
+      expect(detail.body.facebookAttendees).toEqual([
+        expect.objectContaining({ name: 'Some Stranger', plusOnes: 2, plusOneNames: ['Pat Lee'] }),
+      ]);
+      const attendance = await request(server).get(`/api/v1/events/${event.id}/attendance`).set('Cookie', adminCookie).expect(200);
+      expect(attendance.body.find((a: { type: string }) => a.type === 'facebook').memberName).toBe('Some Stranger (+2: Pat Lee)');
     });
 
     it('removes nobody when going_count says the list is incomplete', async () => {

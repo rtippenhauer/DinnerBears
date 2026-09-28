@@ -64,6 +64,17 @@ export class EventRsvpEntity {
   @Column({ type: 'enum', enum: RsvpSource, default: RsvpSource.MEMBER })
   source: RsvpSource;
 
+  // A linked member's +1s from the Facebook comments (Phase 39) — kept apart
+  // from the guests they added on the website, which the sync never touches.
+  // Replaced on every sync. Names (unnamed +1s as null) exclude anyone already
+  // among the member's named website guests; the count is what the headcount
+  // adds on top of `additionalGuests`.
+  @Column({ name: 'facebook_guest_names', type: 'json', nullable: true })
+  facebookGuestNames: (string | null)[] | null;
+
+  @Column({ name: 'facebook_guest_count', type: 'tinyint', unsigned: true, default: 0 })
+  facebookGuestCount: number;
+
   @Column({ type: 'tinyint', nullable: true, default: null })
   attended: boolean | null;
 

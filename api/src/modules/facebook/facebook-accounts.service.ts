@@ -9,13 +9,14 @@ import {
 } from '../../database/entities/facebook-account.entity';
 import {
   FacebookEventAttendeeEntity,
-  facebookPlusOnes,
+  facebookGuests,
   isFacebookGoing,
 } from '../../database/entities/facebook-event-attendee.entity';
 import { UserEntity, UserStatus } from '../../database/entities/user.entity';
 import { AuditService } from '../audit/audit.service';
 import { EventsService, isHiddenRole } from '../events/events.service';
 import { normalizePersonName, parseFacebookProfile } from './facebook-profile.util';
+import { FacebookReconcileService, facebookGuestsForRsvp } from './facebook-reconcile.service';
 
 export interface MemberSuggestion {
   id: number;
@@ -52,6 +53,7 @@ export class FacebookAccountsService {
     @InjectRepository(EventRsvpEntity)
     private readonly rsvpRepo: Repository<EventRsvpEntity>,
     private readonly eventsService: EventsService,
+    private readonly reconcileService: FacebookReconcileService,
     private readonly auditService: AuditService,
   ) {}
 
@@ -148,7 +150,7 @@ export class FacebookAccountsService {
     account.linkedById = actorId;
     await this.accountRepo.save(account);
 
-    const carried = await this.carryOver(account, user.id);
+    const carried = await this.carryOver(account, user.id, actorId);
     await this.auditService.log({
       userId: actorId,
       action: 'facebook.account_link',
@@ -195,7 +197,7 @@ export class FacebookAccountsService {
     return this.row(account.id);
   }
 
-  private async carryOver(account: FacebookAccountEntity, userId: number): Promise<{ attendedCarried: number[]; goingCarried: number[] }> {
+  private async carryOver(account: FacebookAccountEntity, userId: number, actorId: number): Promise<{ attendedCarried: number[]; goingCarried: number[] }> {
     const rows = await this.attendeeRepo.find({ where: { facebookAccountId: account.id } });
     if (rows.length === 0) return { attendedCarried: [], goingCarried: [] };
     const events = await this.eventRepo.find({ where: { id: In(rows.map((r) => r.eventId)) } });
@@ -212,11 +214,14 @@ export class FacebookAccountsService {
         // the normal attendance path so points and achievements match.
         let rsvp = await this.rsvpRepo.findOne({ where: { eventId: event.id, userId } });
         if (!rsvp) {
+          const facebook = facebookGuestsForRsvp(facebookGuests(row), null);
           rsvp = this.rsvpRepo.create({
             eventId: event.id,
             userId,
             status: RsvpStatus.GOING,
-            additionalGuests: facebookPlusOnes(row),
+            additionalGuests: 0,
+            facebookGuestNames: facebook.length ? facebook : null,
+            facebookGuestCount: facebook.length,
             source: RsvpSource.FACEBOOK_SYNC,
           });
         } else {
@@ -229,17 +234,11 @@ export class FacebookAccountsService {
       }
 
       if (isFacebookGoing(row) && event.status === EventStatus.PUBLISHED) {
+        // Same rules as a sync run: the member is Going, with their Facebook
+        // +1s beside their own website guests.
         try {
-          const rsvpable = await this.eventsService.getRsvpableEvent(event.id);
-          const existing = await this.rsvpRepo.findOne({ where: { eventId: event.id, userId } });
-          const plusOnes = facebookPlusOnes(row);
-          if (!existing || existing.status !== RsvpStatus.GOING) {
-            await this.eventsService.setGoingOnBehalf(rsvpable, userId, RsvpSource.FACEBOOK_SYNC, { additionalGuests: plusOnes });
-            goingCarried.push(event.id);
-          } else if (plusOnes > existing.additionalGuests) {
-            existing.additionalGuests = plusOnes;
-            await this.rsvpRepo.save(existing);
-          }
+          const changes = await this.reconcileService.reconcileEvent(event.id, actorId);
+          if (changes.added.some((c) => c.userId === userId)) goingCarried.push(event.id);
         } catch (err) {
           // Past or no longer published — nothing to carry.
           this.logger.debug(`Skipped carrying event ${event.id}: ${(err as Error).message}`);

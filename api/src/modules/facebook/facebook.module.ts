@@ -12,6 +12,7 @@ import { EventsModule } from '../events/events.module';
 import { FacebookAccountsService } from './facebook-accounts.service';
 import { FacebookAdminController } from './facebook-admin.controller';
 import { FacebookSyncService } from './facebook-sync.service';
+import { FacebookReconcileService } from './facebook-reconcile.service';
 
 @Module({
   imports: [
@@ -27,7 +28,7 @@ import { FacebookSyncService } from './facebook-sync.service';
     CalendarModule,
     EventsModule,
   ],
-  providers: [FacebookAccountsService, FacebookSyncService],
+  providers: [FacebookAccountsService, FacebookSyncService, FacebookReconcileService],
   controllers: [FacebookAdminController],
   exports: [FacebookAccountsService, FacebookSyncService],
 })
