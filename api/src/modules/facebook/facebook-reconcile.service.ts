@@ -34,13 +34,24 @@ export function emptyReconcileChanges(): ReconcileChanges {
   return { added: [], guestsChanged: [], removed: [], warnings: [] };
 }
 
-// A linked member's Facebook +1s as stored on their RSVP: every Facebook name
-// not already one of their named website guests (ignoring case), then one
-// null per unnamed +1. Facebook +1s are extra seats — never assumed to be a
-// guest the member already added on the website.
+// A linked member's Facebook +1s as stored on their RSVP: the Facebook names,
+// minus any that are already one of their named website guests (ignoring
+// case; each website guest covers one Facebook +1 of that name, so a repeated
+// name still adds the rest), then one null per unnamed +1. Facebook +1s are
+// extra seats — never assumed to be a guest the member added on the website.
 export function facebookGuestsForRsvp(guests: FacebookGuests, websiteGuestNames: string[] | null): (string | null)[] {
-  const onWebsite = new Set((websiteGuestNames ?? []).map((n) => n.trim().toLowerCase()).filter(Boolean));
-  const named = guests.names.filter((n) => !onWebsite.has(n.trim().toLowerCase()));
+  const onWebsite = new Map<string, number>();
+  for (const n of websiteGuestNames ?? []) {
+    const key = n.trim().toLowerCase();
+    if (key) onWebsite.set(key, (onWebsite.get(key) ?? 0) + 1);
+  }
+  const named: string[] = [];
+  for (const n of guests.names) {
+    const key = n.trim().toLowerCase();
+    const covered = onWebsite.get(key) ?? 0;
+    if (covered > 0) onWebsite.set(key, covered - 1);
+    else named.push(n);
+  }
   return [...named, ...Array.from({ length: guests.unnamed }, () => null)];
 }
 

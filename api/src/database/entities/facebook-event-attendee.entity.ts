@@ -71,20 +71,31 @@ function toGuests(value: FacebookGuests | number | null | undefined): FacebookGu
 }
 
 // Combines +1s from several lists (the same person in two groups, or one
-// member's two Facebook accounts): every distinct name once, ignoring case,
-// and the largest unnamed count — so nobody's guests are doubled.
+// member's two Facebook accounts) without doubling anyone's guests. Repeats
+// within one list are real people — two +1s both called "Guest" are two — so
+// each name counts as many times as the list that repeats it most (ignoring
+// case), and unnamed +1s as the largest unnamed count.
 export function mergeFacebookGuests(lists: (FacebookGuests | number)[]): FacebookGuests {
-  const names = new Map<string, string>();
+  const most = new Map<string, { spelling: string; count: number }>();
   let unnamed = 0;
   for (const raw of lists) {
     const g = toGuests(raw);
+    const counts = new Map<string, { spelling: string; count: number }>();
     for (const n of g.names) {
       const key = n.trim().toLowerCase();
-      if (key && !names.has(key)) names.set(key, n.trim());
+      if (!key) continue;
+      const c = counts.get(key);
+      counts.set(key, { spelling: c?.spelling ?? n.trim(), count: (c?.count ?? 0) + 1 });
+    }
+    for (const [key, c] of counts) {
+      const prev = most.get(key);
+      // The list that repeats a name most also decides how it's spelled.
+      if (!prev || c.count > prev.count) most.set(key, { spelling: c.spelling, count: c.count });
     }
     unnamed = Math.max(unnamed, g.unnamed);
   }
-  return { names: [...names.values()], unnamed };
+  const names = [...most.values()].flatMap((c) => Array.from({ length: c.count }, () => c.spelling));
+  return { names, unnamed };
 }
 
 export function facebookGuests(row: Pick<FacebookEventAttendeeEntity, 'sources'>): FacebookGuests {

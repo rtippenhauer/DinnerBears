@@ -470,6 +470,51 @@ describe('Integrations + Facebook RSVP sync (e2e)', () => {
       expect(attendance.body.find((a: { type: string }) => a.type === 'facebook').memberName).toBe('Some Stranger (+2: Pat Lee)');
     });
 
+    it('accepts a bare +1 count with no names, for Facebook-only people and members alike', async () => {
+      const { token } = await createIntegration();
+      const event = await createEvent();
+      await sync(token, [fbEvent(event.id, CINCY, [BOB_FB])]);
+      await linkAccount('1002', bob.id);
+
+      const res = await sync(token, [fbEvent(event.id, CINCY, [
+        { ...STRANGER, plus_ones: 2 },
+        { ...BOB_FB, plus_ones: 1 },
+      ])]);
+      expect(res.body.events[0]).toMatchObject({ status: 'ok', totalGoing: 5 }); // Stranger + 2, Bob + 1
+
+      const detail = await request(server).get(`/api/v1/events/${event.id}`).set('Cookie', aliceCookie).expect(200);
+      expect(detail.body.facebookAttendees).toEqual([expect.objectContaining({ name: 'Some Stranger', plusOnes: 2, plusOneNames: [] })]);
+      expect(await rsvpOf(event.id, bob.id)).toMatchObject({ additionalGuests: 0, facebookGuestNames: [null], facebookGuestCount: 1 });
+    });
+
+    it('keeps repeated +1 names as separate people, without doubling them across groups', async () => {
+      const { token } = await createIntegration();
+      const event = await createEvent();
+      const res = await sync(token, [
+        fbEvent(event.id, CINCY, [{ ...STRANGER, plus_one_names: ['Guest', 'Guest'] }]),
+        fbEvent(event.id, GEM, [{ ...STRANGER, plus_one_names: ['guest', 'Pat Lee'] }]),
+      ]);
+      // Two "Guest"s (the most either list shows) plus Pat Lee — not four.
+      expect(res.body.events[0].totalGoing).toBe(4);
+      const detail = await request(server).get(`/api/v1/events/${event.id}`).set('Cookie', aliceCookie).expect(200);
+      expect(detail.body.facebookAttendees[0]).toMatchObject({ plusOnes: 3, plusOneNames: ['Guest', 'Guest', 'Pat Lee'] });
+    });
+
+    it('lets one named website guest cover only one Facebook +1 of that name', async () => {
+      const { token } = await createIntegration();
+      const event = await createEvent();
+      await request(server)
+        .post(`/api/v1/events/${event.id}/rsvp`)
+        .set('Cookie', bobCookie)
+        .send({ status: 'going', additionalGuests: 1, guestNames: ['Guest'] })
+        .expect(201);
+      await sync(token, [fbEvent(event.id, CINCY, [BOB_FB])]);
+      await linkAccount('1002', bob.id);
+
+      await sync(token, [fbEvent(event.id, CINCY, [{ ...BOB_FB, plus_one_names: ['Guest', 'Guest'] }])]);
+      expect(await rsvpOf(event.id, bob.id)).toMatchObject({ additionalGuests: 1, facebookGuestNames: ['Guest'], facebookGuestCount: 1 });
+    });
+
     it('removes nobody when going_count says the list is incomplete', async () => {
       const { token } = await createIntegration();
       const event = await createEvent();

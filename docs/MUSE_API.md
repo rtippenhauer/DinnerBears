@@ -370,8 +370,8 @@ Request:
 | `events[].guests[].name` | string | yes | Name as shown on Facebook. |
 | `events[].guests[].profile_url` | string | yes | The person's **current** vanity URL. |
 | `events[].guests[].facebook_user_id` | string | yes | The numeric Facebook profile ID. This is the permanent key; a changed vanity URL just updates. |
-| `events[].guests[].plus_one_names` | string[] | no | Names of the +1s from the Facebook comments, up to 20. |
-| `events[].guests[].plus_ones` | number | no | 0–20. Total +1s, for comments like "+1" with no name. Anything beyond `plus_one_names` counts as unnamed. |
+| `events[].guests[].plus_one_names` | string[] | no | Names of the +1s from the Facebook comments, up to 20. The same name may repeat — two `"Guest"` entries are two people. |
+| `events[].guests[].plus_ones` | number | no | 0–20. Total +1s. Send it on its own for comments like "+2" with no names (no placeholder names needed); anything beyond `plus_one_names` counts as unnamed. |
 | `events[].facebook_event_url`, `events[].title` | string | no | Informational; ignored. |
 | `extracted_at` | ISO date | no | When the lists were read. A Facebook event whose last applied list is newer is skipped. |
 | `note` | string | no | Informational; ignored. |
