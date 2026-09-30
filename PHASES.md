@@ -2375,3 +2375,89 @@ init the MySQL image starts a temporary server that answers ping before root
 grants are final, so the next statement fails `Access denied` and it looks
 random. A fixed `sleep` would only move the race. Verified against a cold start
 with the volume destroyed.
+
+## Phase 39 — Muse API + Facebook RSVP Sync ✅ Complete
+
+Muse (the app that creates the Facebook events and reads their Going lists)
+now drives the Facebook mirror entirely through an API: it reads events,
+manages invite links and links Facebook events to dinners, and pushes Going
+lists that the server turns into RSVPs and a merged headcount. The design went
+through three rounds on stage with Muse, and each is still visible in the
+branch's history.
+
+### Automation accounts and the Muse API
+
+- **`users.is_automation_account`** marks non-person accounts (Claude's, Muse's).
+  Only flagged accounts can hold the `automation` or new **`muse`** role, and
+  they can be moved between those and up to admin for testing. Created at
+  **Admin → Settings → Automation Accounts** as `<name>-automation`, hidden from
+  the leaderboard, directory and member search.
+- **Tokens (`api_tokens`)**: hashed (SHA-256), shown once, 60-day expiry, one
+  live token per account. Muse rotates its own (`POST /muse/token/rotate`, old
+  token dies immediately); admins issue/revoke from the same page.
+- **`/api/v1/muse/*` behind `MuseTokenGuard`**, which reads only
+  `Authorization: Bearer cet_…` and only for a `muse`-role account. The normal
+  session guards were left exactly as on `main` — the token works nowhere else,
+  and a session cookie doesn't open the Muse routes. Its own 120/min rate limit
+  (a sync run can exceed the global 30-writes/min fallback).
+- **Muse can:** read events, locations, members (names/IDs only) and attendees;
+  list/create/revoke event invite links (the Share dialog's, with ready `/join`
+  URLs); link/unlink Facebook events; run the sync. Events and locations are
+  read-only for it. Full contract: `docs/MUSE_API.md`.
+
+### Facebook sync
+
+- **Several Facebook events per dinner** (`event_facebook_links`) — a Dayton
+  dinner gets the Cincinnati group and Gem City Bears. DinnerBears is the source
+  of truth; the sync links a Facebook event automatically on first sight, and a
+  Facebook event can mirror only one dinner.
+- **One batch call** (`POST /muse/facebook-sync`, Muse's own snake_case
+  extraction): every list is applied, then each dinner reconciled, then counts
+  computed — so each Facebook event gets its dinner's final `totalGoing`. A bad
+  entry (past/draft dinner, Facebook event linked elsewhere) fails alone.
+- **Facebook accounts** keyed by numeric Facebook ID, vanity URL kept current;
+  both are required per guest. Admins link them to members at **Admin →
+  Security → Facebook Accounts** (several per member). Name matches are only
+  suggestions — never auto-linked.
+- **Unlinked people are Facebook-only attendees**: counted once however many
+  lists they're on, shown on the event page and in the attendance dialog, and an
+  Attended mark carries over (RSVP + points) when the account is later linked.
+- **Linked members**: marked Going if not already (source `facebook_sync`, email
+  notes it). A sync-made RSVP is removed only once they're on none of the
+  dinner's lists; website RSVPs are never removed. Facebook +1s (named via
+  `plus_one_names`, or a bare `plus_ones` count) are stored beside their website
+  guests and replaced each run; website guests are never touched, and a
+  Facebook +1 is skipped only when its name matches one of their named website
+  guests. Repeated names are separate people.
+- **Guards**: a `going_count` mismatch removes nobody; an older `extracted_at`
+  is skipped; banned/deleted members keep their link, are flagged and never
+  counted; a member's own account deletion unlinks their Facebook accounts.
+- **Admin "Add to Going"** in the attendance dialog (admin-only, source `admin`,
+  never removed by the sync).
+
+### Superseded along the way
+
+The first build parked unmatched people as +1 names on a "sync host" (Rob's)
+RSVP. That was replaced by Facebook-only attendees; migration `…014` clears the
+host +1s that build wrote (found through its audit entries — stage only). The
+`Facebook event ID` column on `events` was added and then removed in favour of
+the links table.
+
+### Verification
+
+35 e2e cases in `api/test/integrations.e2e-spec.ts` (tokens and the guard
+boundary, role rules, read-only enforcement, invite links, two-group dedupe,
+per-source removal, named/unnamed/repeated +1s, carry-over with points, bans,
+self-deletion unlink). Full suite 628/630 with only the pre-existing
+`uploads` / `location-privacy` / `calendar` failures. Exercised on stage by Muse
+(three rounds, final `b4f2458`).
+
+## Phase 40 — Ban Records ✅ In Progress
+
+A permanent record of every ban so a banned person is recognized if they come
+back: name, all emails, Google/Facebook login IDs and linked Facebook sync
+accounts, who banned them, when and an optional reason — kept even when the
+account is deleted. Sign-up and invite redemption matching a record are blocked
+and audited; invites to a banned email are refused; Forceful Ban no longer frees
+the email for re-use; an admin **Banned** list with Unban. Meta Facebook-Login
+deletion requests drop only the Facebook *login* ID from the record.

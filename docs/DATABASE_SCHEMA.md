@@ -1,6 +1,6 @@
 # DinnerBears — Database Schema
 
-_Last updated: 2026-08-08_
+_Last updated: 2026-09-29_
 
 All tables use MySQL InnoDB, UTF8MB4 charset, managed via TypeORM migrations.
 No `synchronize: true`. No manual schema changes.
@@ -51,6 +51,10 @@ No `synchronize: true`. No manual schema changes.
 | `member_points` | 15 | Bear Points ledger (one row per award event) |
 | `custom_icons` | 17 | Reusable icon library for achievements |
 | `avatar` | 31 | Per-instance preset profile avatars (admin-managed) |
+| `api_tokens` | 39 | Hashed API tokens for automation accounts (Muse) |
+| `event_facebook_links` | 39 | Facebook events mirroring a dinner (several per dinner) |
+| `facebook_accounts` | 39 | Facebook people seen on synced Going lists, linkable to members |
+| `facebook_event_attendees` | 39 | A Facebook account's merged Going status + +1s per dinner |
 
 ---
 
@@ -84,8 +88,13 @@ email_verification_expires_at   DATETIME NULL               -- Phase 11
 password_reset_token            VARCHAR(255) NULL           -- Phase 11
 password_reset_expires_at       DATETIME NULL               -- Phase 11
 city_id                         INT UNSIGNED NOT NULL REFERENCES cities(id)
-role                            ENUM('non_validated','member','moderator','admin')
+role                            ENUM('non_validated','member','moderator','admin','automation','muse')
                                 NOT NULL DEFAULT 'member'
+                                -- 'automation' (Claude) and 'muse' (Phase 39) only on
+                                -- automation accounts; both hidden from leaderboard/directory
+is_automation_account           TINYINT NOT NULL DEFAULT 0  -- Phase 39: non-person account
+                                -- (Claude's, Muse's); fixed at creation. Only these may hold the
+                                -- automation/muse roles. Backfilled for automation@dinnerbears.internal.
 -- Membership fee (Phase 35): tracked/enforced only when feature_require_membership
 -- (app_config) is on. Memberships run calendar-year — admin-set expiration
 -- defaults to Jan 1 of the following year (AdminService.setMembership).
@@ -413,6 +422,15 @@ guest_names         JSON NULL                -- array of named guest strings
 bringing_item       VARCHAR(200) NULL        -- Phase 35: optional note on what this
                     -- member is bringing, shown for Residence-location events. Not
                     -- location-gated server-side (same trust model as guest_names).
+source              ENUM('member','admin','facebook_sync') NOT NULL DEFAULT 'member'
+                    -- Phase 39: who created the RSVP. The Facebook sync only ever
+                    -- removes 'facebook_sync' ones; a member touching their own RSVP
+                    -- makes it 'member'.
+facebook_guest_names JSON NULL               -- Phase 39: a linked member's +1s from the
+                    -- Facebook comments (null entries = unnamed), kept apart from
+                    -- guest_names and replaced every sync
+facebook_guest_count TINYINT UNSIGNED NOT NULL DEFAULT 0
+                    -- Phase 39: seats those add on top of additional_guests
 attended            TINYINT(1) NULL DEFAULT NULL
                     -- NULL = not yet marked; true/false set by mod after event
 is_walkin           TINYINT(1) NOT NULL DEFAULT 0
@@ -427,7 +445,9 @@ INDEX idx_event (event_id)
 INDEX idx_user (user_id)
 ```
 
-**Cutoff:** New Going RSVPs and guest count increases are blocked 2.5 hours before event time. Admins and moderators bypass this check.
+**Cutoff:** New Going RSVPs and guest count increases are blocked 2.5 hours before event time. Admins and moderators bypass this check, and so do RSVPs made on someone's behalf (admin "Add to Going", the Facebook sync — Phase 39).
+
+**Seats** for a Going RSVP = `1 + additional_guests + facebook_guest_count`.
 
 ---
 
@@ -937,6 +957,97 @@ bears so it starts empty. Served public via `GET /api/v1/avatars/manifest`;
 admin CRUD at `GET|POST /api/v1/admin/avatars`, `PATCH|DELETE
 /api/v1/admin/avatars/:id`. `UsersService.setAvatar` validates a chosen path
 against this table.
+
+---
+
+## api_tokens
+
+Phase 39. Bearer tokens for automation accounts; only a `muse`-role account can
+use one (`/api/v1/muse/*`, `MuseTokenGuard`). The plaintext (`cet_…`) is shown
+once at issue and never stored.
+
+```sql
+id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY
+user_id         INT UNSIGNED NOT NULL REFERENCES users(id) ON DELETE CASCADE
+token_hash      CHAR(64) NOT NULL UNIQUE        -- SHA-256 of the token
+token_prefix    VARCHAR(16) NOT NULL            -- first 12 chars, for display
+expires_at      DATETIME NOT NULL               -- issue + 60 days
+last_used_at    DATETIME NULL
+revoked_at      DATETIME NULL                   -- set on revoke/rotate/reissue
+created_by      INT UNSIGNED NULL               -- admin who issued it; NULL = self-rotated
+created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+```
+
+One live (unrevoked) token per account: issuing or rotating revokes the rest.
+
+---
+
+## event_facebook_links
+
+Phase 39. Facebook events mirroring a dinner — one per group, so a Dayton
+dinner can have both the Cincinnati group's and Gem City Bears'.
+
+```sql
+id                  INT UNSIGNED AUTO_INCREMENT PRIMARY KEY
+event_id            INT UNSIGNED NOT NULL REFERENCES events(id) ON DELETE CASCADE
+facebook_event_id   VARCHAR(32) NOT NULL UNIQUE   -- digits from facebook.com/events/<id>
+facebook_group      VARCHAR(200) NULL             -- e.g. "Gem City Bears"
+last_extracted_at   DATETIME NULL                 -- when Muse read the list last applied
+last_synced_at      DATETIME NULL
+last_going_count    INT UNSIGNED NULL             -- people accepted from the last list
+created_at          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+```
+
+---
+
+## facebook_accounts
+
+Phase 39. A Facebook person seen on a synced Going list, keyed by numeric
+Facebook ID with the vanity URL kept current. Linked to a member by an admin
+(Admin → Security → Facebook Accounts); a member can have several.
+
+```sql
+id                  INT UNSIGNED AUTO_INCREMENT PRIMARY KEY
+profile_url         VARCHAR(255) NULL UNIQUE      -- normalized "facebook.com/<vanity>"
+facebook_user_id    VARCHAR(32) NULL UNIQUE       -- numeric profile ID (the key)
+display_name        VARCHAR(200) NOT NULL         -- name as last seen on Facebook
+status              ENUM('unmatched','linked','not_member') NOT NULL DEFAULT 'unmatched'
+user_id             INT UNSIGNED NULL REFERENCES users(id) ON DELETE SET NULL
+linked_at           DATETIME NULL
+linked_by           INT UNSIGNED NULL
+last_seen_at        DATETIME NULL
+created_at          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+updated_at          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+```
+
+Links survive a ban or admin delete (so a banned person is recognized on a
+Going list); the hard-delete cron — a member's own deletion — unlinks them.
+
+---
+
+## facebook_event_attendees
+
+Phase 39. One Facebook account's Going status for one dinner, merged across all
+of the dinner's Facebook events. While the account isn't linked to a member,
+this row *is* the attendee (a Facebook-only person in the headcount, event page
+and attendance dialog); once linked, the member's own RSVP stands in for it.
+
+```sql
+id                  INT UNSIGNED AUTO_INCREMENT PRIMARY KEY
+event_id            INT UNSIGNED NOT NULL REFERENCES events(id) ON DELETE CASCADE
+facebook_account_id INT UNSIGNED NOT NULL REFERENCES facebook_accounts(id) ON DELETE CASCADE
+sources             JSON NOT NULL
+                    -- { "<facebook_event_id>": { "names": [...], "unnamed": n } } — one
+                    -- entry per Facebook event currently listing them (older rows may hold
+                    -- a bare number = unnamed +1s). Empty = no longer Going anywhere.
+attended            TINYINT NULL DEFAULT NULL     -- carried to the member when linked
+updated_at          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+
+UNIQUE KEY UQ_fb_attendee_event_account (event_id, facebook_account_id)
+```
+
++1s merge across sources as: each name as many times as the list repeating it
+most, and the largest unnamed count — never summed.
 
 ---
 

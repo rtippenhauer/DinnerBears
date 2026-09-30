@@ -33,41 +33,44 @@ dinnerbears/
 ```
 
 ## Current Development Phase
-Phase 38 (frontend unit tests + the www mail-domain fix) is complete and merged
-into `main`.
+Phase 39 (Muse API + Facebook RSVP sync) is complete and merged into `main`.
+**Next: Phase 40 — ban records** (a permanent record of each ban, kept through
+account deletion, so a banned person is blocked from signing up again and
+flagged on Facebook Going lists; see PHASES.md).
 
-**Correcting a long-standing wrong assumption in this file:** the frontend was
-never missing a test harness. `angular.json` already had a `@angular/build:karma`
-target, `tsconfig.spec.json` was present and correct, `karma` + `jasmine-core`
-were installed, and `ng test` was wired up. Nobody had written a spec. There are
-now **91**, covering `BrandConfigService`, all six route guards, `AuthService`,
-`authInterceptor`, `SplashService`, and the events/locations/comments/announcements
-HTTP services, plus one component spec (`LocationDetailComponent`) pinning Phase
-37's residence rate-gating. `npm test` runs headless single-shot (works with no
-`CHROME_BIN` set, exits 0); `npm run test:watch` is the interactive form. `api/src`
-has one unit spec, `instance-contact.spec.ts`. Deliberately *not* covered: the
-other ~18 thin HTTP-wrapper services and the remaining 63 components, which are
-mostly template with little logic — more specs there would cost maintenance
-without buying signal.
+What Phase 39 leaves behind that later work has to respect:
+- **Muse** (the app that creates the Facebook events) drives the Facebook mirror
+  through `/api/v1/muse/*` only — token-only `MuseTokenGuard`, `Authorization:
+  Bearer cet_…`, for a `muse`-role automation account. The normal session guards
+  never accept a token. Its contract is `docs/MUSE_API.md`, also published for
+  Muse at https://claude.ai/artifact/5uhcYRLfTXbiAn8ggrkCKo (built from that
+  file — republish when it changes). Don't change the contract casually: Muse is
+  built against it.
+- **Automation accounts** (`users.is_automation_account`) are the only accounts
+  that may hold the `automation` or `muse` role. Hide them anywhere members are
+  listed (`isHiddenRole` in `events.service.ts`).
+- **Headcount** is `1 + additional_guests + facebook_guest_count` per Going RSVP,
+  plus public guest links, plus Facebook-only attendees and their +1s
+  (`EventsService.getHeadcount`). Anything new that counts seats must include
+  all three.
+- **RSVP `source`** (`member` / `admin` / `facebook_sync`): the sync only ever
+  removes `facebook_sync` RSVPs. A member saving their own RSVP makes it `member`.
+- **Muse has separate stage and production setups** (different event IDs,
+  tokens, groups).
 
-Also fixed here: **`calendar@www.<domain>` bounced every inbound calendar RSVP
-reply.** `baseDomain()` applied its `www.` strip only to the `APP_URL` fallback,
-so an explicit `BASE_DOMAIN` carrying `www.` flowed into every derived address.
-`www.dinnerbears.com` has no MX record, so those replies died at the sender.
-Now stripped whatever the source, with 11 unit tests. Prod is *also* patched via
-`CALENDAR_ORGANIZER_EMAIL` + `SUPPORT_EMAIL` env overrides; once this ships those
-become optional rather than load-bearing.
+v1 work that has to be rebuilt in CommunityEvents (the v2 repo) is recorded in
+`docs/PORT_TO_COMMUNITYEVENTS.md` by `/phase-done`; Rob carries it over himself.
+Never cherry-pick v1 code there.
 
-And `scripts/test-db-up.sh` now brings up the e2e MySQL and waits until it can
-actually take an authenticated query. `mysqladmin ping` is not sufficient — on
-first-run init the image runs a temporary server that answers ping before root
-grants are final, which produced a random-looking `Access denied`.
+Raised but not scoped: an admin config screen so a new instance needs no `.env`
+edits; broader CMS work (adding a menu item + page); showing a dinner's linked
+Facebook events to admins on the event page; renaming Admin → Users' "Dev
+Delete" to "Delete" (it already deletes without banning). Longer-standing:
+monthly "Nth weekday" event cadence, and swapping the release-note pipeline's
+`marked` (pinned `^15.0.12`) for `markdown-it`.
 
-No phase is currently scoped/in-progress. Raised but not scoped: an admin config
-screen so a new instance needs no `.env` edits, and broader CMS work (adding a
-menu item + page). Longer-standing: monthly "Nth weekday" event cadence, and
-swapping the release-note pipeline's `marked` (pinned `^15.0.12`) for
-`markdown-it`.
+Frontend tests exist (`npm test`, headless single-shot; `npm run test:watch`
+interactive). Most e2e coverage is API-side (`api/test/*.e2e-spec.ts`).
 
 Deployment note: each instance needs its Unraid template set to `NODE_ENV=production`
 + `IS_STAGE=true` (a `staging` value leaves cookies non-Secure and can leak stack
@@ -76,6 +79,10 @@ image serves every instance, with stage vs prod a runtime distinction. Docker De
 is allotted ~1.9GiB, which cannot run the Angular *production* build alongside another
 container; stage builds then fail with a bare `exit code 1` (an OOM kill). Stop the
 test DB first, or raise the allotment.
+
+The root `.env` in this repo points at the **stage** database. The e2e tests never
+read it (they run from `api/` with their own settings on the throwaway `:3307`
+container), but anything run from the repo root with `ConfigModule` defaults would.
 
 Prod runs `BASE_DOMAIN=www.dinnerbears.com`, and `www` is genuinely the only public
 web host — the apex publishes MX only, no A record. That split is why the mail
@@ -86,16 +93,12 @@ city subdomains. Left alone deliberately: nobody uses those subdomains today, an
 changing a live cookie domain strands old cookies for up to 7 days. Revisit before
 promoting any city subdomain.
 
-Two pre-existing e2e failures live on `main` (`uploads`, `location-privacy`) plus
-two `calendar.e2e-spec.ts` typecheck errors — unrelated to recent work, but they
+Pre-existing e2e failures on `main` (`uploads`, `location-privacy`) plus two
+`calendar.e2e-spec.ts` typecheck errors — unrelated to recent work, but they
 make "the suite is green" a claim worth checking rather than assuming.
 
-Phase 22's `BREVO_WEBHOOK_SECRET` follow-up is fully closed as of 2026-07-18:
-`.env.example` documented, stage/prod `.env` set, and Brevo's dashboard webhook URL
-updated — webhook events are confirmed flowing.
-
 ## Completed Phases
-Phases 1, 2, 3, 3.5, 4.1, 4.2, 4.3, 4.4, 4.6, 5, 5.5, 6, 7, 7.5, 7.6, 8, 9, 10, 10.5, 10.6, 11, 12, 13, 14, 15, 16, 16c, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38 ✓ — see PHASES.md for details.
+Phases 1, 2, 3, 3.5, 4.1, 4.2, 4.3, 4.4, 4.6, 5, 5.5, 6, 7, 7.5, 7.6, 8, 9, 10, 10.5, 10.6, 11, 12, 13, 14, 15, 16, 16c, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39 ✓ — see PHASES.md for details.
 
 ## Angular Conventions (STRICT)
 - **Standalone components only** — never use NgModules
