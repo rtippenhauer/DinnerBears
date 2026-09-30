@@ -402,7 +402,18 @@ export class EventsService {
       event.publishedAt = new Date();
     }
 
-    return this.eventRepo.save(event);
+    const saved = await this.eventRepo.save(event);
+
+    // Created already Published: do what publishing a draft does — refresh the
+    // calendar feeds and send the auto-invites. Without this, an event created
+    // straight as Published reached nobody's inbox or calendar.
+    if (saved.status === EventStatus.PUBLISHED) {
+      void this.calendarService.invalidateAll();
+      const full = await this.findOne(saved.id, UserRole.ADMIN);
+      void this.sendPublishInvites(full);
+    }
+
+    return saved;
   }
 
   async update(id: number, dto: UpdateEventDto, callerRole?: UserRole): Promise<EventEntity & { secretDinnerResync?: SecretDinnerResync }> {

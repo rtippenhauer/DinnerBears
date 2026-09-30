@@ -14,7 +14,8 @@ column added in v1 after its spec was written, and whether the import copies it.
 | Phase | Title | v1 PR / tag | DB changes | Ported |
 |---|---|---|---|---|
 | 39 | Muse API + Facebook RSVP sync | PR #40 / `phase-39` | Yes | No |
-| fix (1.6.1) | Upcoming events follow their location's name/address | branch `bugfix-event-location-snapshot` | No | No |
+| fix (1.6.1) | Upcoming events follow their location's name/address | PR #41 | No | No |
+| fix (1.6.1) | Creating an event as Published sends the auto-invites | branch `bugfix-publish-on-create` | No | No |
 
 ---
 
@@ -177,7 +178,7 @@ Checked read-only against CommunityEvents' `V2_PHASES.md` and `CLAUDE.md`
 
 ## Fix (1.6.1) — upcoming events follow their location
 
-**v1 references:** branch `bugfix-event-location-snapshot`, test
+**v1 references:** PR #41, branch `bugfix-event-location-snapshot`, test
 `api/test/event-location-snapshot.e2e-spec.ts`. No database changes.
 
 An event keeps its own copy of its location's name, address and coordinates
@@ -199,6 +200,27 @@ Rules:
 **v2 notes:** same rules; the update is naturally tenant-scoped (events and
 locations are both tenant models). Check v2's enrichment path writes through the
 same helper.
+
+---
+
+## Fix (1.6.1) — creating an event as Published sends the auto-invites
+
+**v1 references:** branch `bugfix-publish-on-create`, test
+`api/test/publish-invites.e2e-spec.ts`. No database changes.
+
+Members who turn on auto-invites (Manage Calendar → all cities, or their own
+city) get an email with a calendar invite when an event is published. That only
+happened when a **draft was published by editing it**; the event form also lets
+an event be created straight as Published, and that path sent no invites and
+didn't refresh the subscribed calendar feeds. Now both paths do the same thing.
+
+Rules (unchanged, now on both paths): invite members with auto-invite `all`,
+or `city` when the event is in their city, who have an email address, whose
+email isn't bounced/complained, and who haven't already RSVP'd. Creating a
+draft sends nothing.
+
+**v2 notes:** check v2's event create path does the same — it inherited the
+same code at the fork.
 
 ---
 
