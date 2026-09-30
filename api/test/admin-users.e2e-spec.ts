@@ -176,6 +176,7 @@ describe('Admin User Management (e2e)', () => {
       const automation = await seedUser(dataSource, city.id, {
         role: UserRole.AUTOMATION,
         email: 'automation@dinnerbears.internal',
+        isAutomationAccount: true,
       });
 
       await request(server)
@@ -189,6 +190,7 @@ describe('Admin User Management (e2e)', () => {
       const automation = await seedUser(dataSource, city.id, {
         role: UserRole.ADMIN,
         email: 'automation@dinnerbears.internal',
+        isAutomationAccount: true,
       });
 
       await request(server)

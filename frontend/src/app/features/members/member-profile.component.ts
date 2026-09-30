@@ -306,7 +306,8 @@ interface AchievementGroup {
                     <mat-option value="moderator">Moderator</mat-option>
                     @if (profile()!.isAutomationAccount) {
                       <mat-option value="admin">Admin</mat-option>
-                      <mat-option value="automation">Automation</mat-option>
+                      <mat-option value="automation">Claude Automation</mat-option>
+                      <mat-option value="muse">Muse Automation</mat-option>
                     }
                   </mat-select>
                 </div>

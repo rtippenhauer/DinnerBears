@@ -41,6 +41,13 @@ export interface QueueEmailDto {
   attachments?: EmailAttachment[];
 }
 
+// Placeholder addresses on the automation/integration accounts (reserved
+// TLDs, see Phase 39). Never hand them to a provider — they'd only bounce and
+// count against sender reputation.
+function isUndeliverableAddress(email: string | null | undefined): boolean {
+  return !!email && /\.(invalid|internal)$/i.test(email.trim());
+}
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -101,6 +108,10 @@ export class EmailService {
   }
 
   async queue(dto: QueueEmailDto): Promise<EmailQueueEntity | null> {
+    if (isUndeliverableAddress(dto.toEmail)) {
+      this.logger.debug(`Email to ${dto.toEmail} skipped — non-routable internal address`);
+      return null;
+    }
     if (!dto.bypassSuppression) {
       const suppressed = await this.isSuppressed(dto.toEmail);
       if (suppressed) {
@@ -144,6 +155,7 @@ export class EmailService {
   }
 
   async sendNow(dto: QueueEmailDto): Promise<void> {
+    if (isUndeliverableAddress(dto.toEmail)) return;
     try {
       await this.brevo.send({
         toEmail: dto.toEmail,

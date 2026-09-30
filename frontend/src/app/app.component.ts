@@ -107,6 +107,7 @@ export class AppComponent {
     return (
       url.startsWith('/admin/users') ||
       url.startsWith('/admin/invites') ||
+      url.startsWith('/admin/facebook-accounts') ||
       url.startsWith('/admin/audit')
     );
   });
@@ -116,6 +117,7 @@ export class AppComponent {
     return (
       url.startsWith('/admin/email') ||
       url.startsWith('/admin/cities') ||
+      url.startsWith('/admin/integrations') ||
       url.startsWith('/admin/merch') ||
       url.startsWith('/admin/legal')
     );

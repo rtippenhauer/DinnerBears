@@ -6,6 +6,7 @@ import { unlink } from 'fs/promises';
 import { join } from 'path';
 import { UserEntity, UserStatus } from '../../database/entities/user.entity';
 import { FacebookDeletionRequestEntity, FacebookDeletionStatus } from '../../database/entities/facebook-deletion-request.entity';
+import { FacebookAccountEntity, FacebookAccountStatus } from '../../database/entities/facebook-account.entity';
 import { AuditService } from '../audit/audit.service';
 
 const LOCAL_PHOTO_PREFIX = '/api/v1/uploads/profiles/';
@@ -19,6 +20,8 @@ export class HardDeleteTask {
     private readonly userRepo: Repository<UserEntity>,
     @InjectRepository(FacebookDeletionRequestEntity)
     private readonly fbDeletionRepo: Repository<FacebookDeletionRequestEntity>,
+    @InjectRepository(FacebookAccountEntity)
+    private readonly facebookAccountRepo: Repository<FacebookAccountEntity>,
     private readonly auditService: AuditService,
   ) {}
 
@@ -65,6 +68,15 @@ export class HardDeleteTask {
       emailVerifiedAt: null,
       hardDeleteAt: null,
     });
+
+    // Phase 39: the member asked to be removed, so drop the tie between their
+    // account and any Facebook profile the sync saw. (Bans and admin deletes
+    // never reach here — those keep the link, so a banned person is still
+    // recognized on a Facebook Going list.)
+    await this.facebookAccountRepo.update(
+      { userId: user.id },
+      { userId: null, status: FacebookAccountStatus.UNMATCHED, linkedAt: null, linkedById: null },
+    );
 
     // Mark any pending facebook deletion requests as completed
     await this.fbDeletionRepo.update(

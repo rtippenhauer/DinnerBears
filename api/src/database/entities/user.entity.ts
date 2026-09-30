@@ -22,6 +22,12 @@ export enum UserRole {
   // member lists (once reassigned to member/moderator/admin, it shows up
   // like any other account of that role would).
   AUTOMATION = 'automation',
+  // Phase 39: the Muse Facebook-event sync. Authenticates only with an API
+  // token, and only on the /muse routes (MuseTokenGuard) — never through the
+  // normal session guards. Like AUTOMATION: hidden from leaderboards, the
+  // member directory and member search, and only an automation account (see
+  // isAutomationAccount) can hold it.
+  MUSE = 'muse',
 }
 
 export enum UserStatus {
@@ -91,6 +97,13 @@ export class UserEntity {
 
   @Column({ type: 'enum', enum: UserRole, default: UserRole.MEMBER })
   role: UserRole;
+
+  // Phase 39: a non-person account (Claude's automation account, Muse's sync
+  // account). Only these may hold the AUTOMATION or MUSE roles, and they can
+  // be moved between those and up to admin for testing. Fixed at creation —
+  // a role change never turns a member into one.
+  @Column({ name: 'is_automation_account', type: 'tinyint', default: false })
+  isAutomationAccount: boolean;
 
   // Phase 35 (membership fee): whether this member has paid dues, and when that
   // membership expires. Memberships always run calendar-year (expire Jan 1 of the

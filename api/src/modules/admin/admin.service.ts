@@ -291,11 +291,17 @@ export class AdminService {
     // role-gated pages for testing, then flip it back down. Regular members
     // still require a direct DB edit to be promoted to admin, and other
     // admins' roles can't be changed via this endpoint at all.
-    const isAutomationAccount = target.email === 'automation@dinnerbears.internal';
+    // Automation accounts (Claude's, Muse's — Phase 39) are the only ones that
+    // may hold the automation roles, and the only non-admins that can be
+    // moved up to admin (for testing) and back down.
+    const isAutomationAccount = !!target.isAutomationAccount;
+    if ((role === UserRole.AUTOMATION || role === UserRole.MUSE) && !isAutomationAccount) {
+      throw new ForbiddenException('Only automation accounts can hold an automation role');
+    }
     if (target.role === UserRole.ADMIN && !isAutomationAccount) {
       throw new ForbiddenException('Cannot change another admin\'s role');
     }
-    if (role === UserRole.ADMIN && target.role !== UserRole.AUTOMATION) {
+    if (role === UserRole.ADMIN && !isAutomationAccount) {
       throw new ForbiddenException('Cannot promote to admin — set directly in the database');
     }
     const previousRole = target.role;

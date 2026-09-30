@@ -26,6 +26,8 @@ import { UseGuestLinkDto } from './dto/use-guest-link.dto';
 import { CreateEventInviteDto } from './dto/create-event-invite.dto';
 import { MarkAttendanceDto } from './dto/mark-attendance.dto';
 import { AddWalkinDto } from './dto/add-walkin.dto';
+import { AddGoingDto } from './dto/add-going.dto';
+import { MarkFacebookAttendanceDto } from './dto/mark-facebook-attendance.dto';
 import { SetReservationDto } from './dto/set-reservation.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../common/guards/optional-jwt-auth.guard';
@@ -246,6 +248,31 @@ export class EventsController {
   @Roles(UserRole.MODERATOR, UserRole.ADMIN)
   resendGuestInvite(@Param('guestLinkId', ParseIntPipe) guestLinkId: number) {
     return this.eventsService.resendGuestInvite(guestLinkId);
+  }
+
+  // Phase 39: an admin marks a member Going on their behalf (the RSVP
+  // counterpart of Add Walk-in). Admin-only — moderators can add walk-ins at
+  // the door but not RSVP for people.
+  @Post(':id/attendance/going')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  addGoing(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AddGoingDto,
+    @CurrentUser() user: UserEntity,
+  ) {
+    return this.eventsService.addGoingByAdmin(id, dto.userId, dto.additionalGuests ?? 0, user.id);
+  }
+
+  // Phase 39: Attended / No-show for a Facebook-only attendee.
+  @Patch('facebook-attendees/:facebookAttendeeId/attendance')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.MODERATOR, UserRole.ADMIN)
+  markFacebookAttendance(
+    @Param('facebookAttendeeId', ParseIntPipe) facebookAttendeeId: number,
+    @Body() dto: MarkFacebookAttendanceDto,
+  ) {
+    return this.eventsService.markFacebookAttendance(facebookAttendeeId, dto.attended);
   }
 
   @Post(':id/attendance/walkin')
