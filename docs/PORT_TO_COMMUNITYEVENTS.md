@@ -14,6 +14,7 @@ column added in v1 after its spec was written, and whether the import copies it.
 | Phase | Title | v1 PR / tag | DB changes | Ported |
 |---|---|---|---|---|
 | 39 | Muse API + Facebook RSVP sync | PR #40 / `phase-39` | Yes | No |
+| fix (1.6.1) | Upcoming events follow their location's name/address | branch `bugfix-event-location-snapshot` | No | No |
 
 ---
 
@@ -171,6 +172,33 @@ Checked read-only against CommunityEvents' `V2_PHASES.md` and `CLAUDE.md`
 - **Email.** Per-community sending (v2-9) applies to the sync's confirmation
   email.
 - **Cities toggle (v2-24).** Nothing in the sync gates on city.
+
+---
+
+## Fix (1.6.1) — upcoming events follow their location
+
+**v1 references:** branch `bugfix-event-location-snapshot`, test
+`api/test/event-location-snapshot.e2e-spec.ts`. No database changes.
+
+An event keeps its own copy of its location's name, address and coordinates
+(so a past dinner still shows where it actually was). Before this fix nothing
+ever refreshed that copy, so correcting a location — here a name garbled on
+import, "Izzyâs" — left the old text on every dinner already scheduled there,
+and the only workaround (switching the event to another location and back)
+emails every RSVP a "details changed" notice.
+
+Rules:
+- Editing a location, **or enrichment renaming / re-addressing it**, updates
+  the copy on that location's **upcoming** events (event date ≥ today, Eastern)
+  that aren't cancelled. Past and cancelled events keep theirs.
+- Saving an upcoming event re-copies its current location's details even when
+  the location didn't change. Past events are left alone.
+- Neither sends any email — "details changed" notices still go out only when an
+  event moves to a different location or its date/time changes.
+
+**v2 notes:** same rules; the update is naturally tenant-scoped (events and
+locations are both tenant models). Check v2's enrichment path writes through the
+same helper.
 
 ---
 

@@ -4,6 +4,8 @@ import { Like, Repository } from 'typeorm';
 import { LocationEntity, ImportSource } from '../../database/entities/location.entity';
 import { LocationPhotoEntity } from '../../database/entities/location-photo.entity';
 import { CityEntity } from '../../database/entities/city.entity';
+import { EventEntity } from '../../database/entities/event.entity';
+import { refreshUpcomingEventLocations } from '../../common/utils/event-location-snapshot.util';
 import { UserEntity } from '../../database/entities/user.entity';
 import { GeocodingService } from './geocoding.service';
 import { CreateLocationDto } from './dto/create-location.dto';
@@ -65,6 +67,8 @@ export class LocationsService {
     private readonly photoRepo: Repository<LocationPhotoEntity>,
     @InjectRepository(CityEntity)
     private readonly cityRepo: Repository<CityEntity>,
+    @InjectRepository(EventEntity)
+    private readonly eventRepo: Repository<EventEntity>,
     private readonly geocodingService: GeocodingService,
     private readonly locationVisibility: LocationVisibilityService,
     private readonly appConfigService: AppConfigService,
@@ -171,6 +175,8 @@ export class LocationsService {
     }
 
     await this.locationRepo.save(location);
+    // Upcoming dinners here pick up the new name/address; past ones keep theirs.
+    await refreshUpcomingEventLocations(this.eventRepo, location);
     return this.findOne(id);
   }
 
