@@ -13,14 +13,14 @@ column added in v1 after its spec was written, and whether the import copies it.
 
 | Phase | Title | v1 PR / tag | DB changes | Ported |
 |---|---|---|---|---|
-| 39 | Muse API + Facebook RSVP sync | PR #__PR__ / `phase-39` | Yes | No |
+| 39 | Muse API + Facebook RSVP sync | PR #40 / `phase-39` | Yes | No |
 
 ---
 
 ## Phase 39 — Muse API + Facebook RSVP sync
 
 **v1 references:** tag `phase-39`, branch `phase-39-facebook-rsvp-sync`,
-PR #__PR__. API contract: `docs/MUSE_API.md` (copy it across as-is).
+PR #40. API contract: `docs/MUSE_API.md` (copy it across as-is).
 
 ### What and why
 
