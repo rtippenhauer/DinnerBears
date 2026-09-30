@@ -8,3 +8,4 @@ once that release's draft has been created.
 ## Fixes
 
 - Upcoming {{events}} now show a {{locations}}'s corrected name and address as soon as it's updated.
+- Automatic calendar invites now go out for every newly published {{events}} — some were being missed.
