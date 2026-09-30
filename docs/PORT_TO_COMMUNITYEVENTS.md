@@ -16,7 +16,7 @@ column added in v1 after its spec was written, and whether the import copies it.
 | 39 | Muse API + Facebook RSVP sync | PR #40 / `phase-39` | Yes | No |
 | fix (1.6.1) | Upcoming events follow their location's name/address | PR #41 | No | No |
 | fix (1.6.1) | Creating an event as Published sends the auto-invites | PR #42 | No | No |
-| fix (1.6.1) | Release-note placeholders filled in on the login pop-up | branch `bugfix-release-note-placeholders` | No | No |
+| fix (1.6.1) | Release-note placeholders filled in on the login pop-up | PR #43 | No | No |
 
 ---
 
@@ -227,7 +227,7 @@ same code at the fork.
 
 ## Fix (1.6.1) — release-note placeholders on the login pop-up
 
-**v1 references:** branch `bugfix-release-note-placeholders`, helper
+**v1 references:** PR #43, helper
 `frontend/src/app/shared/utils/substitute-terms.ts` (+ spec). No database changes.
 
 Shared release notes are written with `{{points}}`, `{{locations}}` and
