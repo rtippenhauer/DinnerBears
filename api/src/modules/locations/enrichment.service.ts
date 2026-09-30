@@ -8,6 +8,8 @@ import { join } from 'path';
 import Anthropic from '@anthropic-ai/sdk';
 import { LocationEntity } from '../../database/entities/location.entity';
 import { LocationPhotoEntity } from '../../database/entities/location-photo.entity';
+import { EventEntity } from '../../database/entities/event.entity';
+import { refreshUpcomingEventLocations } from '../../common/utils/event-location-snapshot.util';
 
 export interface EnrichResult {
   name: string | null;
@@ -107,6 +109,8 @@ export class EnrichmentService {
     private readonly locationRepo: Repository<LocationEntity>,
     @InjectRepository(LocationPhotoEntity)
     private readonly photoRepo: Repository<LocationPhotoEntity>,
+    @InjectRepository(EventEntity)
+    private readonly eventRepo: Repository<EventEntity>,
   ) {
     this.googleKey = configService.get<string>('GOOGLE_PLACES_API_KEY');
     const anthropicKey = configService.get<string>('ANTHROPIC_API_KEY');
@@ -261,6 +265,10 @@ export class EnrichmentService {
       }
     }
     await this.locationRepo.update(location.id, updates);
+    if (updates.name || updates.address) {
+      const fresh = await this.locationRepo.findOne({ where: { id: location.id } });
+      if (fresh) await refreshUpcomingEventLocations(this.eventRepo, fresh);
+    }
 
     return result;
   }

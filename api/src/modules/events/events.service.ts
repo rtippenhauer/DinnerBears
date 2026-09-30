@@ -37,6 +37,7 @@ import { LocationVisibilityService } from '../../common/services/location-visibi
 import { eventOrganizerEmail } from '../../common/config/instance-contact';
 import { AppConfigService } from '../app-config/app-config.service';
 import { AuditService } from '../audit/audit.service';
+import { easternToday } from '../../common/utils/event-location-snapshot.util';
 
 export interface EventFilters {
   cityId?: number;
@@ -435,6 +436,17 @@ export class EventsService {
       event.locationAddress = location.address;
       event.locationLat = location.lat;
       event.locationLng = location.lng;
+    } else if (event.locationId && (dto.eventDate ?? event.eventDate) >= easternToday()) {
+      // Same location: still re-copy its current name/address, so a location
+      // fixed after the event was created is picked up by saving the event.
+      // Past events keep the details they had at the time.
+      const location = await this.locationRepo.findOne({ where: { id: event.locationId } });
+      if (location) {
+        event.locationName = location.name;
+        event.locationAddress = location.address;
+        event.locationLat = location.lat;
+        event.locationLng = location.lng;
+      }
     }
 
     if (dto.title !== undefined) event.title = dto.title;
