@@ -62,6 +62,9 @@ export class EmailDispatcherService {
     const users60 = await this.userRepo
       .createQueryBuilder('u')
       .where('u.status = :active', { active: 'active' })
+      // Automation accounts (Claude, Muse — Phase 39) never log in like a person;
+      // sweeping them would break the integration and orphan their audit rows.
+      .andWhere('u.is_automation_account = 0')
       .andWhere('u.last_login_at < :cutoff', { cutoff: days(60) })
       .andWhere('u.last_login_at >= :cutoff2', { cutoff2: days(61) })
       .getMany();
@@ -73,6 +76,9 @@ export class EmailDispatcherService {
     const users90 = await this.userRepo
       .createQueryBuilder('u')
       .where('u.status = :active', { active: 'active' })
+      // Automation accounts (Claude, Muse — Phase 39) never log in like a person;
+      // sweeping them would break the integration and orphan their audit rows.
+      .andWhere('u.is_automation_account = 0')
       .andWhere('u.last_login_at < :cutoff', { cutoff: days(90) })
       .andWhere('u.last_login_at >= :cutoff2', { cutoff2: days(91) })
       .getMany();
@@ -84,6 +90,9 @@ export class EmailDispatcherService {
     const users120 = await this.userRepo
       .createQueryBuilder('u')
       .where('u.status = :active', { active: 'active' })
+      // Automation accounts (Claude, Muse — Phase 39) never log in like a person;
+      // sweeping them would break the integration and orphan their audit rows.
+      .andWhere('u.is_automation_account = 0')
       .andWhere('u.last_login_at < :cutoff', { cutoff: days(120) })
       .getMany();
 
