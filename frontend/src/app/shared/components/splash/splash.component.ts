@@ -6,6 +6,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { SplashItem } from '../../../core/services/splash.service';
 import { BrandConfigService } from '../../../core/services/brand-config.service';
 import { normalizeNbsp } from '../../utils/normalize-nbsp';
+import { substituteTerms } from '../../utils/substitute-terms';
 
 export interface SplashDialogData {
   item: SplashItem;
@@ -123,8 +124,8 @@ function buildBurst(id: number): Burst {
           @case ('release') {
             <div class="splash-icon"><mat-icon>rocket_launch</mat-icon></div>
             <div class="splash-label">What's New — v{{ data.item.release.version }}</div>
-            <h2 class="splash-name">{{ data.item.release.title }}</h2>
-            <div class="splash-body" [innerHTML]="safeHtml(data.item.release.body)"></div>
+            <h2 class="splash-name">{{ terms(data.item.release.title) }}</h2>
+            <div class="splash-body" [innerHTML]="safeHtml(terms(data.item.release.body))"></div>
           }
           @case ('announcement') {
             <div class="splash-icon"><mat-icon>campaign</mat-icon></div>
@@ -356,5 +357,10 @@ export class SplashComponent implements OnDestroy {
 
   safeHtml(content: string): SafeHtml {
     return this.sanitizer.bypassSecurityTrustHtml(normalizeNbsp(content));
+  }
+
+  // Release notes carry {{events}}-style placeholders; announcements don't.
+  terms(content: string): string {
+    return substituteTerms(content, this.brand);
   }
 }

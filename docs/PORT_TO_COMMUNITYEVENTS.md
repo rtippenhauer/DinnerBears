@@ -15,7 +15,8 @@ column added in v1 after its spec was written, and whether the import copies it.
 |---|---|---|---|---|
 | 39 | Muse API + Facebook RSVP sync | PR #40 / `phase-39` | Yes | No |
 | fix (1.6.1) | Upcoming events follow their location's name/address | PR #41 | No | No |
-| fix (1.6.1) | Creating an event as Published sends the auto-invites | branch `bugfix-publish-on-create` | No | No |
+| fix (1.6.1) | Creating an event as Published sends the auto-invites | PR #42 | No | No |
+| fix (1.6.1) | Release-note placeholders filled in on the login pop-up | branch `bugfix-release-note-placeholders` | No | No |
 
 ---
 
@@ -205,7 +206,7 @@ same helper.
 
 ## Fix (1.6.1) — creating an event as Published sends the auto-invites
 
-**v1 references:** branch `bugfix-publish-on-create`, test
+**v1 references:** PR #42, test
 `api/test/publish-invites.e2e-spec.ts`. No database changes.
 
 Members who turn on auto-invites (Manage Calendar → all cities, or their own
@@ -221,6 +222,27 @@ draft sends nothing.
 
 **v2 notes:** check v2's event create path does the same — it inherited the
 same code at the fork.
+
+---
+
+## Fix (1.6.1) — release-note placeholders on the login pop-up
+
+**v1 references:** branch `bugfix-release-note-placeholders`, helper
+`frontend/src/app/shared/utils/substitute-terms.ts` (+ spec). No database changes.
+
+Shared release notes are written with `{{points}}`, `{{locations}}` and
+`{{events}}` so one note reads right on every instance. Only the Updates page
+swapped them for the instance's words; the login pop-up (splash) that shows a
+new release to members printed them raw. Titles weren't swapped anywhere. Now
+one helper does it for the title and body in both places.
+
+Rules: `{{points}}` → the points name as configured; `{{locations}}` and
+`{{events}}` → the **plural, lower-case** words (e.g. "restaurants",
+"dinners"), case-insensitive, spaces inside the braces allowed. There are no
+singular tokens, so notes must be worded so a plural fits.
+
+**v2 notes:** anywhere v2 shows a release note (Updates, splash, any email or
+push of it) must go through the same substitution, using the tenant's terms.
 
 ---
 
