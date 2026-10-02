@@ -11,6 +11,22 @@ section here. Rob carries this file over when v2 is ready for it.
 (CommunityEvents `v2-25`, `docs/REQ-IMPORT-01.md`) needs: every table and
 column added in v1 after its spec was written, and whether the import copies it.
 
+> **This list is closed** (Rob, 2026-10-01). The goal is now to get DinnerBears
+> onto CommunityEvents as soon as possible, and every phase finished here
+> afterwards is another one to re-implement there — so **v1 takes no new
+> phases** and nothing further will be added below. Bugfixes may still land in
+> v1; they port cheaply, as the three 1.6.1 entries show. Phases do not.
+>
+> **Phase 40 (Ban Records) is therefore not here** — it was moved to
+> CommunityEvents as `v2-30` before any v1 code was written, so there is nothing
+> to port. See `PHASES.md`'s Phase 40 entry and
+> [CommunityEvents `V2_PHASES.md`](https://github.com/rtippenhauer/CommunityEvents/blob/main/V2_PHASES.md#v2-30--ban-records).
+> Its absence below is deliberate, not an oversight.
+>
+> The cutover plan that depends on this list is
+> [`docs/CUTOVER_PLAN.md`](https://github.com/rtippenhauer/CommunityEvents/blob/main/docs/CUTOVER_PLAN.md)
+> in that repo; porting Phase 39 is `v2-29` there.
+
 | Phase | Title | v1 PR / tag | DB changes | Ported |
 |---|---|---|---|---|
 | 39 | Muse API + Facebook RSVP sync | PR #40 / `phase-39` | Yes | No |

@@ -2452,7 +2452,33 @@ self-deletion unlink). Full suite 628/630 with only the pre-existing
 `uploads` / `location-privacy` / `calendar` failures. Exercised on stage by Muse
 (three rounds, final `b4f2458`).
 
-## Phase 40 — Ban Records ✅ In Progress
+## Phase 40 — Ban Records ➡️ Moved to CommunityEvents (v2-30)
+
+**Not built here, and it will not be** (Rob, 2026-10-01). Moved to the v2
+rewrite as **`v2-30`** —
+[CommunityEvents `V2_PHASES.md`](https://github.com/rtippenhauer/CommunityEvents/blob/main/V2_PHASES.md#v2-30--ban-records).
+No v1 code was ever written, so nothing was abandoned; the spec below moved
+across as it stood.
+
+**Why.** CommunityEvents forked from this repo at Phase 38 / v1.5.1 on
+2026-08-08, and the goal is now to get DinnerBears onto it as soon as possible
+(see its `docs/CUTOVER_PLAN.md`). Every phase finished here afterwards is a
+phase that then has to be re-implemented there, so **v1 takes no new phases**:
+the port list in `docs/PORT_TO_COMMUNITYEVENTS.md` is final at Phase 39 plus the
+three 1.6.1 fixes. Bugfixes may still land here; phases may not.
+
+Building it there instead also takes it off the cutover's critical path
+entirely. v1 does not have the feature today, so going live without it is parity
+rather than regression — where finishing it here would have made it both a phase
+to complete *and* a phase to port.
+
+**One thing changed in the move:** a ban is **community-wide**, not
+deployment-wide (Rob, 2026-10-01). That is not a new policy — Cincinnati and
+Dayton run as separate databases today, so a ban in one has never bound the
+other — but it has to be said out loud in v2, where both are tenants of one
+deployment.
+
+### The spec as it stood
 
 A permanent record of every ban so a banned person is recognized if they come
 back: name, all emails, Google/Facebook login IDs and linked Facebook sync
