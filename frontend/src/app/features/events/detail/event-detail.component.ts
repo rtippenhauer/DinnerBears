@@ -3102,7 +3102,7 @@ export class EventDetailComponent implements OnInit, OnDestroy, HasUnsavedChange
   memberMarkReservationConfirmed(): void {
     const id = this.event()!.id;
     this.reservationSaving.set(true);
-    this.eventsService.setReservation(id, { confirmed: true }).subscribe({
+    this.eventsService.confirmOwnReservation(id).subscribe({
       next: (updated) => {
         this.event.set(updated);
         this.reservationSaving.set(false);
