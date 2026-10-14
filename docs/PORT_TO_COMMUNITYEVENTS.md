@@ -34,7 +34,7 @@ column added in v1 after its spec was written, and whether the import copies it.
 | fix (1.6.1) | Creating an event as Published sends the auto-invites | PR #42 | No | No |
 | fix (1.6.1) | Release-note placeholders filled in on the login pop-up | PR #43 | No | No |
 | fix | Gmail calendar replies (Accept/Maybe/Decline) are recorded | PR #45 | No | No |
-| fix | Assigned member can mark their reservation made | branch `bugfix-assignee-confirm-reservation` | No | No |
+| fix | Assigned member can mark their reservation made | PR #47 | No | No |
 
 ---
 
@@ -296,7 +296,7 @@ and the organizer address need to identify the tenant.
 
 ## Fix — the assigned member can mark their reservation made
 
-**v1 references:** branch `bugfix-assignee-confirm-reservation`, test
+**v1 references:** PR #47, test
 `api/test/reservation-self-confirm.e2e-spec.ts`. No database changes.
 
 A member assigned to make a dinner's reservation sees "I Made the
