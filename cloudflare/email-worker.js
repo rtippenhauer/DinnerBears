@@ -2,7 +2,7 @@
  * Cloudflare Email Worker — DinnerBears calendar reply handler
  *
  * Receives inbound email sent to calendar@dinnerbears.com (prod) or
- * calendar@stage.dinnerbears.com (stage) when a member taps Accept/Maybe/Decline
+ * calendar-stage@dinnerbears.com (stage) when a member taps Accept/Maybe/Decline
  * on a calendar invite, then forwards the raw message to the correct API.
  *
  * Deploy steps:
@@ -12,11 +12,14 @@
  *       calendar-stage@dinnerbears.com → this Worker  (stage)
  *  3. Set Worker environment variables (Workers > Settings > Variables & Secrets):
  *       CLOUDFLARE_EMAIL_SECRET  — shared secret, must match API container env
- *       API_URL                  — https://dinnerbears.com
+ *       API_URL                  — https://www.dinnerbears.com
+ *                                  (www, not the apex: dinnerbears.com has MX
+ *                                  records only, so a POST there never resolves
+ *                                  and the email still shows as "Handled")
  *       STAGE_API_URL            — https://stage.dinnerbears.com  (optional)
  *  4. Set the same CLOUDFLARE_EMAIL_SECRET in both prod and stage API containers.
  *  5. In stage docker-compose / env, set:
- *       CALENDAR_ORGANIZER_EMAIL=calendar@stage.dinnerbears.com
+ *       CALENDAR_ORGANIZER_EMAIL=calendar-stage@dinnerbears.com
  *     (so stage .ics invites reply to the stage address, not prod)
  *
  * wrangler.toml:
@@ -24,7 +27,7 @@
  *   main = "email-worker.js"
  *   compatibility_date = "2024-01-01"
  *   [vars]
- *   API_URL = "https://dinnerbears.com"
+ *   API_URL = "https://www.dinnerbears.com"
  *   STAGE_API_URL = "https://stage.dinnerbears.com"
  */
 
@@ -40,9 +43,9 @@ export default {
     const to = (message.to ?? '').toLowerCase();
     let apiUrl;
     if (to.startsWith('calendar-stage@')) {
-      apiUrl = env.STAGE_API_URL ?? env.API_URL ?? 'https://dinnerbears.com';
+      apiUrl = env.STAGE_API_URL ?? env.API_URL ?? 'https://www.dinnerbears.com';
     } else {
-      apiUrl = env.API_URL ?? 'https://dinnerbears.com';
+      apiUrl = env.API_URL ?? 'https://www.dinnerbears.com';
     }
 
     let raw;
