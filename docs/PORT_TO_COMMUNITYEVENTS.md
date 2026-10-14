@@ -33,8 +33,9 @@ column added in v1 after its spec was written, and whether the import copies it.
 | fix (1.6.1) | Upcoming events follow their location's name/address | PR #41 | No | No |
 | fix (1.6.1) | Creating an event as Published sends the auto-invites | PR #42 | No | No |
 | fix (1.6.1) | Release-note placeholders filled in on the login pop-up | PR #43 | No | No |
-| fix | Gmail calendar replies (Accept/Maybe/Decline) are recorded | PR #45 | No | No |
-| fix | Assigned member can mark their reservation made | PR #47 | No | No |
+| fix (1.6.2) | Gmail calendar replies (Accept/Maybe/Decline) are recorded | PR #45 | No | No |
+| fix (1.6.2) | Email Worker posts replies to the real web host | PR #46 | No | No |
+| fix (1.6.3) | Assigned member can mark their reservation made | PR #47 | No | No |
 
 ---
 
@@ -264,7 +265,7 @@ push of it) must go through the same substitution, using the tenant's terms.
 
 ---
 
-## Fix — Gmail calendar replies are recorded
+## Fix (1.6.2) — Gmail calendar replies are recorded
 
 **v1 references:** PR #45, test
 `api/test/calendar-reply.e2e-spec.ts`. No database changes.
@@ -294,7 +295,31 @@ and the organizer address need to identify the tenant.
 
 ---
 
-## Fix — the assigned member can mark their reservation made
+## Fix (1.6.2) — the email Worker posts replies to the real web host
+
+**v1 references:** PR #46 (`cloudflare/email-worker.js`). No database changes.
+Goes with the Gmail reply fix above: both were needed before any calendar
+reply reached production.
+
+The Cloudflare email Worker that forwards calendar replies documented and
+defaulted `API_URL` to `https://dinnerbears.com`. The apex has MX records
+only (no A record), so the POST never resolved. The Worker caught the error
+and returned, and Cloudflare's Email Routing activity log still showed every
+message as **Handled**, so nothing looked wrong. On production the live Worker
+variable was changed to `https://www.dinnerbears.com`, and the repo copy's
+default and setup notes now say `www` (with the reason). The notes also gave
+the stage reply address as `calendar@stage.dinnerbears.com`; the route and the
+API use `calendar-stage@<domain>`.
+
+**v2 notes:** v2's `cloudflare/email-worker.js` still has the apex default
+(checked 2026-10-14). Don't hardcode any one community's domain there: fail
+loudly when `API_URL` isn't set, and document that it must be the community's
+real public web host. Under tenancy, decide how each community's organizer
+address reaches that community's API.
+
+---
+
+## Fix (1.6.3) — the assigned member can mark their reservation made
 
 **v1 references:** PR #47, test
 `api/test/reservation-self-confirm.e2e-spec.ts`. No database changes.
