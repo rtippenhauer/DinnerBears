@@ -33,7 +33,7 @@ column added in v1 after its spec was written, and whether the import copies it.
 | fix (1.6.1) | Upcoming events follow their location's name/address | PR #41 | No | No |
 | fix (1.6.1) | Creating an event as Published sends the auto-invites | PR #42 | No | No |
 | fix (1.6.1) | Release-note placeholders filled in on the login pop-up | PR #43 | No | No |
-| fix | Gmail calendar replies (Accept/Maybe/Decline) are recorded | branch `bugfix-calendar-reply-qp` | No | No |
+| fix | Gmail calendar replies (Accept/Maybe/Decline) are recorded | PR #45 | No | No |
 
 ---
 
@@ -265,7 +265,7 @@ push of it) must go through the same substitution, using the tenant's terms.
 
 ## Fix — Gmail calendar replies are recorded
 
-**v1 references:** branch `bugfix-calendar-reply-qp`, test
+**v1 references:** PR #45, test
 `api/test/calendar-reply.e2e-spec.ts`. No database changes.
 
 Invite emails carry a calendar invite; tapping Accept/Maybe/Decline sends a
