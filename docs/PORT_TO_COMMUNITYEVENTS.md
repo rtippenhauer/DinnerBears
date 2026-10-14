@@ -34,6 +34,7 @@ column added in v1 after its spec was written, and whether the import copies it.
 | fix (1.6.1) | Creating an event as Published sends the auto-invites | PR #42 | No | No |
 | fix (1.6.1) | Release-note placeholders filled in on the login pop-up | PR #43 | No | No |
 | fix | Gmail calendar replies (Accept/Maybe/Decline) are recorded | PR #45 | No | No |
+| fix | Assigned member can mark their reservation made | branch `bugfix-assignee-confirm-reservation` | No | No |
 
 ---
 
@@ -290,6 +291,27 @@ that fails is invisible to admins. Worth an admin-visible record in v2.
 **v2 notes:** v2 inherited the same parser at the fork — port the decode rule
 and the Gmail-shaped test. Under tenancy the UID (`dinnerbears-event-<id>@…`)
 and the organizer address need to identify the tenant.
+
+---
+
+## Fix — the assigned member can mark their reservation made
+
+**v1 references:** branch `bugfix-assignee-confirm-reservation`, test
+`api/test/reservation-self-confirm.e2e-spec.ts`. No database changes.
+
+A member assigned to make a dinner's reservation sees "I Made the
+Reservation" on the event page. It called `PATCH /events/:id/reservation`,
+which is admin/moderator-only, so every ordinary member got "Failed to
+update". The service already treated "caller is the assignee" as a
+self-confirm; only the route blocked it.
+
+New route `POST /events/:id/reservation/confirm` (any logged-in user): 403
+unless the caller is `reservation_assignee_id`; it only sets confirmed
+(`reservationConfirmedBy` = the assignee's name, timestamp). Reassigning,
+contacts and un-confirming stay on the admin/moderator PATCH.
+
+**v2 notes:** v2 inherited the same button and route at the fork — check it
+has an assignee-only confirm path, tenant-scoped.
 
 ---
 

@@ -1895,6 +1895,15 @@ export class EventsService {
     };
   }
 
+  async confirmOwnReservation(eventId: number, user: UserEntity): Promise<EventEntity> {
+    const event = await this.eventRepo.findOne({ where: { id: eventId } });
+    if (!event) throw new NotFoundException(`Event ${eventId} not found`);
+    if (event.reservationAssigneeId !== user.id) {
+      throw new ForbiddenException('You are not assigned to make this reservation');
+    }
+    return this.setReservation(eventId, { confirmed: true }, user);
+  }
+
   async setReservation(eventId: number, dto: SetReservationDto, callerUser?: UserEntity): Promise<EventEntity> {
     const event = await this.eventRepo.findOne({
       where: { id: eventId },

@@ -301,6 +301,14 @@ export class EventsController {
     return this.eventsService.setReservation(id, dto, user);
   }
 
+  // The member assigned to make the reservation marks it made. Only they can,
+  // and only confirming — reassigning stays admin/moderator-only (PATCH above).
+  @Post(':id/reservation/confirm')
+  @UseGuards(JwtAuthGuard)
+  confirmOwnReservation(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: UserEntity) {
+    return this.eventsService.confirmOwnReservation(id, user);
+  }
+
   @Post('reservation-confirm/:token')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   confirmReservation(@Param('token') token: string) {
