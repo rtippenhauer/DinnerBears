@@ -33,6 +33,7 @@ column added in v1 after its spec was written, and whether the import copies it.
 | fix (1.6.1) | Upcoming events follow their location's name/address | PR #41 | No | No |
 | fix (1.6.1) | Creating an event as Published sends the auto-invites | PR #42 | No | No |
 | fix (1.6.1) | Release-note placeholders filled in on the login pop-up | PR #43 | No | No |
+| fix | Gmail calendar replies (Accept/Maybe/Decline) are recorded | PR #45 | No | No |
 
 ---
 
@@ -259,6 +260,36 @@ singular tokens, so notes must be worded so a plural fits.
 
 **v2 notes:** anywhere v2 shows a release note (Updates, splash, any email or
 push of it) must go through the same substitution, using the tenant's terms.
+
+---
+
+## Fix — Gmail calendar replies are recorded
+
+**v1 references:** PR #45, test
+`api/test/calendar-reply.e2e-spec.ts`. No database changes.
+
+Invite emails carry a calendar invite; tapping Accept/Maybe/Decline sends a
+`METHOD:REPLY` email to `calendar@<domain>`, which Cloudflare Email Routing
+hands to the email Worker (`cloudflare/email-worker.js`), which POSTs the raw
+message to `POST /api/v1/calendar/rsvp-reply` (header `X-Cloudflare-Secret`).
+Gmail sends the calendar part quoted-printable with a readable
+`BEGIN:VCALENDAR` but every `=` written as `=3D` (`PARTSTAT=3DACCEPTED`). The
+parser took the readable block as plain text, couldn't read the ATTENDEE line,
+and dropped every Gmail reply.
+
+Rules: if the calendar block contains `=3D` it is genuinely quoted-printable
+and gets a full decode (soft line breaks + `=XY` escapes, decoded as UTF-8
+bytes); otherwise only soft line breaks are removed — a full decode of clean
+iCal corrupts `PARTSTAT=ACCEPTED` (`=AC` looks like an escape). ACCEPTED →
+Going, TENTATIVE → Maybe, DECLINED → Not Going; the attendee is matched by the
+email on the ATTENDEE line; the event must be published.
+
+**Not logged anywhere but the container log** (`rsvp-reply:` lines); a reply
+that fails is invisible to admins. Worth an admin-visible record in v2.
+
+**v2 notes:** v2 inherited the same parser at the fork — port the decode rule
+and the Gmail-shaped test. Under tenancy the UID (`dinnerbears-event-<id>@…`)
+and the organizer address need to identify the tenant.
 
 ---
 

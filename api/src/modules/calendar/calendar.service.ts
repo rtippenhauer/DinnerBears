@@ -483,8 +483,15 @@ export class CalendarService {
     // Y happen to be hex digits (e.g. "PARTSTAT=ACCEPTED" contains "=AC", and
     // "PARTSTAT=DECLINED" contains "=DE"), silently corrupting real PARTSTAT
     // values while "=TE" in "TENTATIVE" happens to survive since T isn't hex.
+    //
+    // A quoted-printable part can still have a readable BEGIN:VCALENDAR, though —
+    // Gmail's replies do, with every "=" written as "=3D" (PARTSTAT=3DACCEPTED).
+    // Real QP encodes every "=", so a block containing "=3D" is genuinely
+    // encoded and gets the full decode; clean iCal never contains "=3D".
     const inline = rawEmail.match(/BEGIN:VCALENDAR[\s\S]*?END:VCALENDAR/i);
-    if (inline) return inline[0].replace(/=\r?\n/g, '');
+    if (inline) {
+      return /=3D/i.test(inline[0]) ? this.decodeQuotedPrintable(inline[0]) : inline[0].replace(/=\r?\n/g, '');
+    }
 
     // Try after full QP decode of the email (catches cases where the iCal section
     // has soft-line-break folding that obscures the BEGIN: marker)
@@ -509,9 +516,11 @@ export class CalendarService {
     return null;
   }
 
+  // Escapes are bytes of UTF-8 text, so decode them as bytes — a name like
+  // "José" arrives as "Jos=C3=A9".
   private decodeQuotedPrintable(str: string): string {
-    return str
-      .replace(/=\r?\n/g, '')  // remove QP soft line breaks
-      .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+    const unfolded = str.replace(/=\r?\n/g, ''); // remove QP soft line breaks
+    const bytes = unfolded.replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+    return Buffer.from(bytes, 'latin1').toString('utf-8');
   }
 }
