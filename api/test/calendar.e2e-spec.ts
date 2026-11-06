@@ -88,7 +88,9 @@ describe('Calendar / ICS Feed (e2e)', () => {
       expect(res.text).toContain(`UID:dinnerbears-event-${event.id}@dinnerbears.com`);
       expect(res.text).toMatch(/DTSTART:\d{8}T\d{6}Z/);
       expect(res.text).toContain('STATUS:CONFIRMED');
-      expect(res.text).toContain('ORGANIZER;CN=DinnerBears:mailto:calendar@dinnerbears.com');
+      // Derived from BASE_DOMAIN, which test/setup-env.ts sets to 'localhost' —
+      // it was the literal production address until de-branding.
+      expect(res.text).toContain('ORGANIZER;CN=DinnerBears:mailto:calendar@localhost');
       expect(res.text).toContain('METHOD:PUBLISH');
     });
 
@@ -330,15 +332,20 @@ describe('Calendar / ICS Feed (e2e)', () => {
   });
 
   describe('CalendarService.buildInviteAttachment (Phase 16b — direct call, no HTTP side effect to observe)', () => {
-    it('builds a METHOD:REQUEST invite with an ATTENDEE RSVP line and a DTSTAMP', () => {
+    it('builds a METHOD:REQUEST invite with an ATTENDEE RSVP line and a DTSTAMP', async () => {
       const event = { id: 1, locationName: 'Test Place', locationAddress: '123 Main St', eventDate: dateOffset(14), eventTime: '18:30', updatedAt: new Date() } as EventEntity;
 
-      const ics = calendarService.buildInviteAttachment(event, { name: 'Guest Name', email: 'guest@example.test' }, 'http://localhost:8081');
+      const ics = await calendarService.buildInviteAttachment(event, { name: 'Guest Name', email: 'guest@example.test' }, 'http://localhost:8081');
 
       expect(ics).toContain('METHOD:REQUEST');
       expect(ics).toContain(`UID:dinnerbears-event-${event.id}@dinnerbears.com`);
       expect(ics).toContain('ATTENDEE;CN=Guest Name;RSVP=TRUE:mailto:guest@example.test');
-      expect(ics).toContain('ORGANIZER;CN=DinnerBears:mailto:calendar@dinnerbears.com');
+      // Derived from BASE_DOMAIN, which test/setup-env.ts sets to 'localhost'. It
+      // was the literal production address until the de-branding commit made it
+      // config-derived — unnoticed because the same commit made
+      // buildInviteAttachment async without awaiting it here, which stopped this
+      // whole FILE from compiling and so from running at all.
+      expect(ics).toContain('ORGANIZER;CN=DinnerBears:mailto:calendar@localhost');
       expect(ics).toMatch(/DTSTAMP:\d{8}T\d{6}Z/);
     });
 
@@ -348,12 +355,17 @@ describe('Calendar / ICS Feed (e2e)', () => {
       // the exact same SEQUENCE every time — calendar clients had no signal
       // that a later email superseded an earlier one and created a duplicate
       // pending invitation per message instead of updating one in place.
+      //
+      // Two sends a second apart is all this can see, which is why it passed
+      // throughout the 999999-second wrap that replaced the original bug with
+      // a slower one. The monotonicity that actually matters is covered in
+      // src/common/utils/ics-sequence.spec.ts.
       const event = { id: 2, locationName: 'Test Place', locationAddress: '123 Main St', eventDate: dateOffset(14), eventTime: '18:30', updatedAt: new Date() } as EventEntity;
       const recipient = { name: 'Guest Name', email: 'guest@example.test' };
 
-      const first = calendarService.buildInviteAttachment(event, recipient, 'http://localhost:8081');
+      const first = await calendarService.buildInviteAttachment(event, recipient, 'http://localhost:8081');
       await new Promise((resolve) => setTimeout(resolve, 1100));
-      const second = calendarService.buildInviteAttachment(event, recipient, 'http://localhost:8081');
+      const second = await calendarService.buildInviteAttachment(event, recipient, 'http://localhost:8081');
 
       const extractSequence = (ics: string) => Number(ics.match(/SEQUENCE:(\d+)/)?.[1]);
       expect(extractSequence(second)).toBeGreaterThan(extractSequence(first));

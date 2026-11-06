@@ -64,3 +64,24 @@ export function foldIcsLine(line: string): string {
 
   return parts.join('\r\n ');
 }
+
+// SEQUENCE is an RFC 5545 INTEGER, which the spec caps at the signed 32-bit
+// maximum. Counting from 2020 rather than from the Unix epoch is what buys the
+// headroom: epoch seconds cross 2^31 in 2038, seconds since 2020 not until 2088.
+const ICS_SEQUENCE_EPOCH_MS = Date.UTC(2020, 0, 1);
+
+/**
+ * A SEQUENCE value that only ever increases.
+ *
+ * A calendar client ignores a METHOD:REQUEST whose SEQUENCE is not HIGHER than
+ * the one it already holds for that UID, so this must never go backwards for
+ * the life of an event. It used to be taken `% 999999`, which wrapped to zero
+ * every 11.57 days — and after each wrap an invite for an event the member had
+ * already seen carried a LOWER number and was discarded in silence, leaving
+ * whatever their calendar held (a stale Declined, say) while the website showed
+ * the new RSVP. Nothing bounces and nothing logs, so the only symptom is a
+ * member saying their calendar is wrong.
+ */
+export function icsSequence(at: Date): number {
+  return Math.max(0, Math.floor((at.getTime() - ICS_SEQUENCE_EPOCH_MS) / 1000));
+}
