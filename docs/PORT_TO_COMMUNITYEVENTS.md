@@ -36,6 +36,7 @@ column added in v1 after its spec was written, and whether the import copies it.
 | fix (1.6.2) | Gmail calendar replies (Accept/Maybe/Decline) are recorded | PR #45 | No | No |
 | fix (1.6.2) | Email Worker posts replies to the real web host | PR #46 | No | No |
 | fix (1.6.3) | Assigned member can mark their reservation made | PR #47 | No | No |
+| fix (1.6.4) | Calendar invites stop being ignored every 11.57 days (ICS SEQUENCE) | PR #49 | No | No |
 
 ---
 
@@ -359,9 +360,15 @@ whose calendar would not follow his RSVP.
 
 `icsSequence(date)` is seconds since 2020 with no modulo: monotonic for the
 life of an event, and inside the signed 32-bit range RFC 5545 allows until
-2088. It replaces both call sites (the `METHOD:REQUEST` invite, which keys on
-send time, and the `METHOD:PUBLISH` feed, which keys on `updatedAt` — that one
-wrapped every 694 days).
+2088. It replaces all three call sites: the `METHOD:REQUEST` invite (keyed on
+send time), the `METHOD:PUBLISH` feed (keyed on `updatedAt`, wrapped every 694
+days), and the single-event `.ics` download in `EventsService` ("Add to
+Calendar", also `METHOD:PUBLISH` on `updatedAt`, minutes `% 999999`).
+
+**v2 note (checked 2026-11-07):** CommunityEvents' port (`b0cce6b`) fixed the
+first two; its single-event download in `events.service.ts` (~line 1477)
+still uses `Math.floor(updatedAt / 60000) % 999999` and needs `icsSequence`
+too.
 
 The new value is far larger than any the old formula could produce, so every
 client steps up across the deploy and none is left holding a higher number
