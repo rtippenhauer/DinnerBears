@@ -36,6 +36,7 @@ column added in v1 after its spec was written, and whether the import copies it.
 | fix (1.6.2) | Gmail calendar replies (Accept/Maybe/Decline) are recorded | PR #45 | No | No |
 | fix (1.6.2) | Email Worker posts replies to the real web host | PR #46 | No | No |
 | fix (1.6.3) | Assigned member can mark their reservation made | PR #47 | No | No |
+| fix (1.6.4) | Calendar invites stop being ignored every 11.57 days (ICS SEQUENCE) | PR #49 | No | No |
 
 ---
 
@@ -337,6 +338,53 @@ contacts and un-confirming stay on the admin/moderator PATCH.
 
 **v2 notes:** v2 inherited the same button and route at the fork — check it
 has an assignee-only confirm path, tenant-scoped.
+
+---
+
+## Fix (1.6.4) — a calendar invite stops being ignored every 11.57 days
+
+**v1 references:** PR #49, new `icsSequence` in
+`api/src/common/utils/ics.util.ts`, tests
+`api/src/common/utils/ics-sequence.spec.ts`. No database changes.
+
+A calendar client ignores a `METHOD:REQUEST` whose `SEQUENCE` is not
+*higher* than the one it already holds for that UID. Both ICS builders took
+the value `% 999999`, so it returned to zero every 11 days 13 hours — and
+every invite sent in the window after a wrap carried a lower number than the
+member's calendar already held, and was discarded.
+
+Nothing bounces and nothing logs. The member RSVPs Going on the website, the
+site agrees, the email arrives, and their calendar keeps whatever it had —
+including a Declined they set from an earlier invite. Reported by a member
+whose calendar would not follow his RSVP.
+
+`icsSequence(date)` is seconds since 2020 with no modulo: monotonic for the
+life of an event, and inside the signed 32-bit range RFC 5545 allows until
+2088. It replaces all three call sites: the `METHOD:REQUEST` invite (keyed on
+send time), the `METHOD:PUBLISH` feed (keyed on `updatedAt`, wrapped every 694
+days), and the single-event `.ics` download in `EventsService` ("Add to
+Calendar", also `METHOD:PUBLISH` on `updatedAt`, minutes `% 999999`).
+
+**v2 note (checked 2026-11-07):** CommunityEvents' port (`b0cce6b`) fixed the
+first two; its single-event download in `events.service.ts` (~line 1477)
+still uses `Math.floor(updatedAt / 60000) % 999999` and needs `icsSequence`
+too.
+
+The new value is far larger than any the old formula could produce, so every
+client steps up across the deploy and none is left holding a higher number
+than the next invite will carry.
+
+**Found alongside, and the reason this went unnoticed:** the existing
+regression test for the first version of this bug called the now-`async`
+`buildInviteAttachment` without `await`. That is a type error, so
+`api/test/calendar.e2e-spec.ts` **stopped compiling — and all 25 of its tests
+stopped running — at the de-branding commit**. Fixed with it, which also
+surfaced two assertions still expecting the pre-de-branding literal
+`calendar@dinnerbears.com`. 25/25 now run.
+
+**v2 notes:** ported in the same change — v2 inherited both call sites
+byte-identical. v2's own calendar e2e was not wedged (the Vitest conversion
+awaited it), so only the two builders and the util spec move across.
 
 ---
 
