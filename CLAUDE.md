@@ -81,7 +81,7 @@ container; stage builds then fail with a bare `exit code 1` (an OOM kill). Stop 
 test DB first, or raise the allotment.
 
 The root `.env` in this repo points at the **stage** database. The e2e tests never
-read it (they run from `api/` with their own settings on the throwaway `:3307`
+read it (they run from `api/` with their own settings on the throwaway `:3320`
 container), but anything run from the repo root with `ConfigModule` defaults would.
 
 Prod runs `BASE_DOMAIN=www.dinnerbears.com`, and `www` is genuinely the only public
