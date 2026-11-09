@@ -80,8 +80,13 @@ is allotted ~1.9GiB, which cannot run the Angular *production* build alongside a
 container; stage builds then fail with a bare `exit code 1` (an OOM kill). Stop the
 test DB first, or raise the allotment.
 
+Ports: see `C:\Users\rtipp\source\repos\PORTS.md`, the one list of port
+assignments across all of Rob's projects. DinnerBears is project 07: e2e MySQL
+3075, Unraid web prod 20070 and stage 20075 (moving from 8065/8066). Never take
+a port that isn't this project's row.
+
 The root `.env` in this repo points at the **stage** database. The e2e tests never
-read it (they run from `api/` with their own settings on the throwaway `:3320`
+read it (they run from `api/` with their own settings on the throwaway `:3075`
 container), but anything run from the repo root with `ConfigModule` defaults would.
 
 Prod runs `BASE_DOMAIN=www.dinnerbears.com`, and `www` is genuinely the only public

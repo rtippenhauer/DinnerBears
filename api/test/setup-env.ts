@@ -9,7 +9,7 @@ function setDefault(key: string, value: string): void {
 
 setDefault('NODE_ENV', 'test');
 setDefault('DB_HOST', '127.0.0.1');
-setDefault('DB_PORT', '3320');
+setDefault('DB_PORT', '3075');
 setDefault('DB_USER', 'root');
 setDefault('DB_PASSWORD', 'test');
 setDefault('DB_NAME', 'dinnerbears_test');
